@@ -1,0 +1,53 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://draggable_container.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_titlebar"]
+bg_color = Color(0.15, 0.15, 0.15, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+
+[node name="DraggableContainer" type="Panel"]
+offset_right = 200.0
+offset_bottom = 150.0
+script = ExtResource("1_script")
+
+[node name="TitleBar" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 4.0
+offset_top = 2.0
+offset_right = -4.0
+offset_bottom = 26.0
+grow_horizontal = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_titlebar")
+mouse_default_cursor_shape = 13
+
+[node name="TitleLabel" type="Label" parent="TitleBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 0
+text = "Container"
+clip_text = true
+text_overrun_behavior = 3
+
+[node name="UnlinkButton" type="Button" parent="TitleBar"]
+visible = false
+layout_mode = 2
+custom_minimum_size = Vector2(24, 0)
+text = "🔗"
+
+[node name="CloseButton" type="Button" parent="TitleBar"]
+layout_mode = 2
+custom_minimum_size = Vector2(24, 0)
+text = "X"
+
+[node name="Content" type="Panel" parent="."]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 28.0
+offset_right = -10.0
+offset_bottom = -10.0

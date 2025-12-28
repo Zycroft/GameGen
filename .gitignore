@@ -1,0 +1,6 @@
+# Godot cache
+.godot/
+
+# Python cache
+__pycache__/
+*.pyc
