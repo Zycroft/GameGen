@@ -1,10 +1,10 @@
 ---
-name: godot-scene-importer
+name: project-importer
 description: Import Godot .tscn scene files and convert them to GameGen's container/widget format for storage in DynamoDB. Use when importing existing Godot UI scenes into GameGen.
 allowed-tools: Read, Bash(python:*), Glob, Grep, mcp__dynamodb__put_item, mcp__dynamodb__scan_table
 ---
 
-# Godot Scene Importer Skill
+# Project Importer Skill
 
 Converts Godot .tscn scene files to GameGen's scene hierarchy format and stores them in DynamoDB.
 
@@ -113,5 +113,5 @@ Data is stored using native DynamoDB types:
 
 Run the import script:
 ```bash
-python .claude/skills/godot-scene-importer/scripts/import_godot_scene.py /path/to/scene.tscn --project-id 1
+python .claude/skills/project-importer/scripts/import_godot_scene.py /path/to/scene.tscn --project-id 1
 ```
