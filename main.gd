@@ -550,76 +550,91 @@ func _create_container(container_type: String) -> DraggableContainer:
 	return container
 
 
-func _create_standalone_widget(widget_type: String, props: Dictionary) -> Control:
-	"""Create a standalone widget for display in viewport when selected from hierarchy"""
-	var widget: Control
+func _create_standalone_widget(widget_type: String, props: Dictionary, node_name: String = "") -> DraggableContainer:
+	"""Create a DraggableContainer wrapping a widget for display in viewport"""
+	var container = DraggableContainerScene.instantiate()
+	add_child(container)
+
+	# Set as PanelContainer internally but display widget type
+	container.set_container_type("PanelContainer")
+
+	# Apply widget-specific color
+	var color = SceneHierarchyScript.NODE_COLORS.get(widget_type, Color(0.5, 0.5, 0.5))
+	container._apply_color(color)
+
+	# Set the display name
+	if node_name.is_empty():
+		container.title_label.text = widget_type
+	else:
+		container.title_label.text = node_name + " (" + widget_type + ")"
+
+	# Connect signals
+	container.closed.connect(_on_container_closed.bind(container))
+	container.drag_ended.connect(_on_container_drag_ended)
+	container.unlinked.connect(_on_container_unlinked)
+	container.selected.connect(_on_container_selected_in_viewport)
+
+	# Track this container
+	all_containers.append(container)
+
+	# Add the actual widget to the container
 	var size_x = props.get("sizeX", props.get("minSizeX", 64))
 	var size_y = props.get("sizeY", props.get("minSizeY", 64))
+	container.add_widget_from_data(widget_type, props)
 
-	match widget_type:
-		"Button":
-			widget = Button.new()
-			widget.text = props.get("text", "Button")
-			widget.custom_minimum_size = Vector2(size_x, size_y)
-		"Label":
-			widget = Label.new()
-			widget.text = props.get("text", "Label")
-		"TextureRect":
-			# Purple placeholder for textures
-			widget = ColorRect.new()
-			widget.color = Color(0.6, 0.4, 0.7, 0.8)
-			widget.custom_minimum_size = Vector2(size_x, size_y)
-		"ColorRect":
-			widget = ColorRect.new()
-			widget.color = Color(0.5, 0.5, 0.8)
-			widget.custom_minimum_size = Vector2(size_x, size_y)
-		"ProgressBar":
-			widget = ProgressBar.new()
-			widget.value = props.get("value", 50)
-			widget.custom_minimum_size = Vector2(size_x, size_y)
-		"HSlider":
-			widget = HSlider.new()
-			widget.value = props.get("value", 50)
-			widget.custom_minimum_size = Vector2(size_x, size_y)
-		"VSlider":
-			widget = VSlider.new()
-			widget.value = props.get("value", 50)
-			widget.custom_minimum_size = Vector2(size_x, size_y)
-		"CheckBox":
-			widget = CheckBox.new()
-			widget.text = props.get("text", "CheckBox")
-		"CheckButton":
-			widget = CheckButton.new()
-			widget.text = props.get("text", "Toggle")
-		"LineEdit":
-			widget = LineEdit.new()
-			widget.text = props.get("text", "")
-			widget.placeholder_text = props.get("placeholder_text", "Enter text...")
-			widget.custom_minimum_size = Vector2(size_x, size_y)
-		"TextEdit":
-			widget = TextEdit.new()
-			widget.text = props.get("text", "")
-			widget.custom_minimum_size = Vector2(size_x, size_y)
-		"SpinBox":
-			widget = SpinBox.new()
-			widget.value = props.get("value", 0)
-		"OptionButton":
-			widget = OptionButton.new()
-			widget.add_item("Option 1")
-		"ColorPickerButton":
-			widget = ColorPickerButton.new()
-			widget.color = Color(props.get("color", "#ff8080"))
-		"RichTextLabel":
-			widget = RichTextLabel.new()
-			widget.text = props.get("text", "Rich Text")
-			widget.custom_minimum_size = Vector2(size_x, size_y)
+	# Set container size based on widget
+	container.size = Vector2(size_x + 20, size_y + 40)  # Add padding for title bar
+
+	return container
+
+
+func _create_2d_node_container(node_type: String, props: Dictionary, node_name: String = "") -> DraggableContainer:
+	"""Create a DraggableContainer with placeholder for 2D nodes (Sprite2D, etc.)"""
+	var container = DraggableContainerScene.instantiate()
+	add_child(container)
+
+	# Set as PanelContainer internally
+	container.set_container_type("PanelContainer")
+
+	# Apply 2D node color
+	var color = SceneHierarchyScript.NODE_COLORS.get(node_type, Color(0.4, 0.6, 0.8))
+	container._apply_color(color)
+
+	# Set the display name
+	if node_name.is_empty():
+		container.title_label.text = node_type
+	else:
+		container.title_label.text = node_name + " (" + node_type + ")"
+
+	# Connect signals
+	container.closed.connect(_on_container_closed.bind(container))
+	container.drag_ended.connect(_on_container_drag_ended)
+	container.unlinked.connect(_on_container_unlinked)
+	container.selected.connect(_on_container_selected_in_viewport)
+
+	# Track this container
+	all_containers.append(container)
+
+	# Create placeholder based on node type
+	var size_x = props.get("sizeX", 64)
+	var size_y = props.get("sizeY", 64)
+	var placeholder = ColorRect.new()
+
+	match node_type:
+		"Sprite2D", "AnimatedSprite2D":
+			placeholder.color = Color(0.5, 0.8, 0.5, 0.7)  # Green for sprites
+		"Node2D":
+			placeholder.color = Color(0.4, 0.6, 0.8, 0.7)  # Blue for Node2D
 		_:
-			# Default: colored rectangle with label
-			widget = ColorRect.new()
-			widget.color = Color(0.5, 0.5, 0.5, 0.7)
-			widget.custom_minimum_size = Vector2(size_x, size_y)
+			placeholder.color = Color(0.5, 0.5, 0.5, 0.7)  # Gray default
 
-	return widget
+	placeholder.custom_minimum_size = Vector2(size_x, size_y)
+	container.inner_container.add_child(placeholder)
+
+	# Set container size
+	container.size = Vector2(size_x + 20, size_y + 40)
+
+	return container
 
 
 func _on_container_closed(container: Node) -> void:
@@ -1118,16 +1133,15 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		for widget_data in node_data.get("widgets", []):
 			var widget_type = widget_data.get("type", "Label")
 			var widget_props = widget_data.get("properties", {})
-			var widget = _create_standalone_widget(widget_type, widget_props)
-			if widget:
+			var widget_name = widget_data.get("name", widget_type)
+			var container = _create_standalone_widget(widget_type, widget_props, widget_name)
+			if container:
 				var widget_id = widget_data.get("id", _get_next_node_id())
-				widget.name = widget_data.get("name", widget_type) + "_" + str(widget_id)
-				widget.set_meta("node_id", widget_id)
+				container.set_meta("node_id", widget_id)
 				var pos_x = widget_props.get("positionX", 0)
 				var pos_y = widget_props.get("positionY", 0)
-				widget.position = Vector2(pos_x, pos_y)
-				add_child(widget)
-				all_nodes[widget_id] = widget
+				container.global_position = Vector2(pos_x, pos_y)
+				all_nodes[widget_id] = container
 		# Process children directly
 		for child in node_data.get("children", []):
 			_create_nodes_from_tree(child, null)
@@ -1169,59 +1183,28 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 				all_nodes[widget_id] = widget
 
 	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["2D"]:
-		# Create 2D node
-		var node: Node2D
-		var needs_placeholder := false
-		match node_type:
-			"Node2D":
-				node = Node2D.new()
-			"Sprite2D":
-				node = Sprite2D.new()
-				needs_placeholder = true
-				if props.has("texture") and not props["texture"].is_empty():
-					var tex_path = props["texture"]
-					if ResourceLoader.exists(tex_path):
-						var tex = load(tex_path)
-						if tex:
-							node.texture = tex
-							needs_placeholder = false
-			"AnimatedSprite2D":
-				node = AnimatedSprite2D.new()
-				needs_placeholder = true
-			_:
-				node = Node2D.new()
+		# Create 2D node in draggable container
+		var node_name = node_data.get("name", node_type)
+		var container = _create_2d_node_container(node_type, props, node_name)
+		container.set_meta("node_id", node_id)
+		var pos_x = props.get("positionX", 100)
+		var pos_y = props.get("positionY", 100)
+		container.global_position = Vector2(pos_x, pos_y)
+		all_nodes[node_id] = container
 
-		node.name = node_data.get("name", node_type) + "_" + str(node_id)
-		node.position = Vector2(props.get("positionX", 100), props.get("positionY", 100))
-		node.set_meta("node_id", node_id)
-
-		# Add placeholder for sprites without textures
-		if needs_placeholder:
-			var placeholder = ColorRect.new()
-			placeholder.color = Color(0.5, 0.8, 0.5, 0.7)  # Green for sprites
-			var size_x = props.get("sizeX", 64)
-			var size_y = props.get("sizeY", 64)
-			placeholder.size = Vector2(size_x, size_y)
-			placeholder.position = Vector2(-size_x / 2, -size_y / 2)  # Center on sprite origin
-			node.add_child(placeholder)
-
-		add_child(node)
-		all_nodes[node_id] = node
-
-		# Create widgets for 2D nodes
+		# Create widgets for 2D nodes (positioned relative to parent)
 		for widget_data in node_data.get("widgets", []):
 			var widget_type = widget_data.get("type", "Label")
 			var widget_props = widget_data.get("properties", {})
-			var widget = _create_standalone_widget(widget_type, widget_props)
-			if widget:
+			var widget_name_inner = widget_data.get("name", widget_type)
+			var widget_container = _create_standalone_widget(widget_type, widget_props, widget_name_inner)
+			if widget_container:
 				var widget_id = widget_data.get("id", _get_next_node_id())
-				widget.name = widget_data.get("name", widget_type) + "_" + str(widget_id)
-				widget.set_meta("node_id", widget_id)
-				var pos_x = widget_props.get("positionX", 0)
-				var pos_y = widget_props.get("positionY", 0)
-				widget.position = Vector2(pos_x, pos_y)
-				node.add_child(widget)
-				all_nodes[widget_id] = widget
+				widget_container.set_meta("node_id", widget_id)
+				var wpos_x = widget_props.get("positionX", 0)
+				var wpos_y = widget_props.get("positionY", 0)
+				widget_container.global_position = Vector2(pos_x + wpos_x, pos_y + wpos_y)
+				all_nodes[widget_id] = widget_container
 
 	elif node_type == "AnimationPlayer":
 		var anim_player = AnimationPlayer.new()
@@ -1238,17 +1221,16 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		all_nodes[node_id] = audio_player
 
 	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["UI"]:
-		# Standalone widget selected - create as Control at viewport level
-		var widget = _create_standalone_widget(node_type, props)
-		if widget:
-			widget.name = node_data.get("name", node_type) + "_" + str(node_id)
-			widget.set_meta("node_id", node_id)
-			# Position the widget in viewport
+		# Standalone widget selected - create in draggable container
+		var widget_name = node_data.get("name", node_type)
+		var container = _create_standalone_widget(node_type, props, widget_name)
+		if container:
+			container.set_meta("node_id", node_id)
+			# Position the container in viewport
 			var pos_x = props.get("positionX", 100)
 			var pos_y = props.get("positionY", 100)
-			widget.position = Vector2(pos_x, pos_y)
-			add_child(widget)
-			all_nodes[node_id] = widget
+			container.global_position = Vector2(pos_x, pos_y)
+			all_nodes[node_id] = container
 
 	# Process children recursively
 	for child in node_data.get("children", []):
