@@ -20,6 +20,12 @@ var scene_root: Dictionary = {}
 var all_nodes: Dictionary = {}  # node_id -> node instance or data
 var selected_node_id: int = -1
 
+# Viewport frame settings
+var project_viewport_size := Vector2(1920, 1080)  # Default project viewport
+var viewport_margin_percent := 0.10  # 10% margin
+var viewport_frame: Line2D
+var viewport_offset: Vector2  # Offset to center content with margin
+
 
 func _ready() -> void:
 	# Connect Controls panel signal (node spawning)
@@ -35,8 +41,44 @@ func _ready() -> void:
 	add_child(load_http_request)
 	load_http_request.request_completed.connect(_on_load_completed)
 
+	# Create viewport frame
+	_create_viewport_frame()
+
 	# Create scene hierarchy panel
 	_create_scene_hierarchy()
+
+
+func _create_viewport_frame() -> void:
+	"""Create a visible frame showing the project viewport boundaries"""
+	# Calculate the margin offset (10% of viewport size)
+	var margin = project_viewport_size * viewport_margin_percent
+	viewport_offset = margin
+
+	# Create the frame using Line2D
+	viewport_frame = Line2D.new()
+	viewport_frame.width = 3.0
+	viewport_frame.default_color = Color(0.3, 0.6, 0.9, 0.8)  # Light blue
+	viewport_frame.closed = true
+
+	# Draw rectangle at the offset position
+	var frame_pos = viewport_offset
+	var frame_size = project_viewport_size
+	viewport_frame.add_point(frame_pos)
+	viewport_frame.add_point(Vector2(frame_pos.x + frame_size.x, frame_pos.y))
+	viewport_frame.add_point(Vector2(frame_pos.x + frame_size.x, frame_pos.y + frame_size.y))
+	viewport_frame.add_point(Vector2(frame_pos.x, frame_pos.y + frame_size.y))
+	viewport_frame.add_point(frame_pos)  # Close the loop
+
+	# Add corner markers for visibility
+	add_child(viewport_frame)
+
+	# Add a label showing viewport size
+	var label = Label.new()
+	label.text = "Project Viewport: %dx%d" % [int(project_viewport_size.x), int(project_viewport_size.y)]
+	label.position = viewport_offset + Vector2(5, -25)
+	label.add_theme_color_override("font_color", Color(0.3, 0.6, 0.9, 0.8))
+	label.add_theme_font_size_override("font_size", 14)
+	add_child(label)
 
 
 func _create_scene_hierarchy() -> void:
@@ -386,7 +428,7 @@ func _add_container_node(parent_id: int, container_type: String) -> void:
 
 	# Create actual container
 	var container = _create_container(container_type)
-	container.global_position = Vector2(node_data["properties"]["positionX"], node_data["properties"]["positionY"])
+	container.global_position = viewport_offset + Vector2(node_data["properties"]["positionX"], node_data["properties"]["positionY"])
 	container.set_meta("node_id", node_id)
 	all_nodes[node_id] = container
 
@@ -1140,7 +1182,7 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 				container.set_meta("node_id", widget_id)
 				var pos_x = widget_props.get("positionX", 0)
 				var pos_y = widget_props.get("positionY", 0)
-				container.global_position = Vector2(pos_x, pos_y)
+				container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 				all_nodes[widget_id] = container
 		# Process children directly
 		for child in node_data.get("children", []):
@@ -1152,7 +1194,7 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		# Create container
 		var container = _create_container(node_type)
 		container.set_meta("node_id", node_id)
-		container.global_position = Vector2(props.get("positionX", 100), props.get("positionY", 100))
+		container.global_position = viewport_offset + Vector2(props.get("positionX", 100), props.get("positionY", 100))
 		container.size = Vector2(props.get("sizeX", 200), props.get("sizeY", 150))
 
 		var node_name = node_data.get("name", "")
@@ -1189,7 +1231,7 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		container.set_meta("node_id", node_id)
 		var pos_x = props.get("positionX", 100)
 		var pos_y = props.get("positionY", 100)
-		container.global_position = Vector2(pos_x, pos_y)
+		container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 		all_nodes[node_id] = container
 
 		# Create widgets for 2D nodes (positioned relative to parent)
@@ -1203,7 +1245,7 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 				widget_container.set_meta("node_id", widget_id)
 				var wpos_x = widget_props.get("positionX", 0)
 				var wpos_y = widget_props.get("positionY", 0)
-				widget_container.global_position = Vector2(pos_x + wpos_x, pos_y + wpos_y)
+				widget_container.global_position = viewport_offset + Vector2(pos_x + wpos_x, pos_y + wpos_y)
 				all_nodes[widget_id] = widget_container
 
 	elif node_type == "AnimationPlayer":
@@ -1229,7 +1271,7 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 			# Position the container in viewport
 			var pos_x = props.get("positionX", 100)
 			var pos_y = props.get("positionY", 100)
-			container.global_position = Vector2(pos_x, pos_y)
+			container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 			all_nodes[node_id] = container
 
 	# Process children recursively
@@ -1270,8 +1312,8 @@ func _create_container_from_data(data: Dictionary, parent: DraggableContainer) -
 		container.unlinked.connect(_on_container_unlinked)
 		container.selected.connect(_on_container_selected_in_viewport)
 
-	# Set position and size
-	container.global_position = Vector2(data.get("positionX", 0), data.get("positionY", 0))
+	# Set position and size (with viewport offset)
+	container.global_position = viewport_offset + Vector2(data.get("positionX", 0), data.get("positionY", 0))
 	container.size = Vector2(data.get("sizeX", 200), data.get("sizeY", 150))
 
 	# Set container name if present
