@@ -39,7 +39,8 @@ const NODE_CATEGORIES := {
 	"UI": ["Button", "Label", "LineEdit", "TextEdit", "CheckBox", "CheckButton",
 		   "OptionButton", "SpinBox", "HSlider", "VSlider", "ProgressBar",
 		   "ColorRect", "TextureRect", "ColorPickerButton", "RichTextLabel"],
-	"Animation": ["AnimationPlayer"]
+	"Animation": ["AnimationPlayer"],
+	"Audio": ["AudioStreamPlayer"]
 }
 
 const NODE_COLORS := {
@@ -77,7 +78,9 @@ const NODE_COLORS := {
 	"ColorPickerButton": Color(0.8, 0.6, 0.7),
 	"RichTextLabel": Color(0.6, 0.5, 0.7),
 	# Animation
-	"AnimationPlayer": Color(0.9, 0.6, 0.3)
+	"AnimationPlayer": Color(0.9, 0.6, 0.3),
+	# Audio
+	"AudioStreamPlayer": Color(0.3, 0.7, 0.9)
 }
 
 const NODE_ICONS := {
@@ -111,7 +114,8 @@ const NODE_ICONS := {
 	"TextureRect": "TEX",
 	"ColorPickerButton": "CLR",
 	"RichTextLabel": "RTF",
-	"AnimationPlayer": "ANM"
+	"AnimationPlayer": "ANM",
+	"AudioStreamPlayer": "SFX"
 }
 
 @onready var title_bar: Panel = $TitleBar

@@ -540,9 +540,10 @@ func _spawn_widget(widget_type: String) -> Control:
 			widget.color = Color(0.5, 0.5, 0.8)
 			widget.custom_minimum_size = Vector2(60, 40)
 		"TextureRect":
-			widget = TextureRect.new()
+			# Use ColorRect as placeholder since we don't load actual textures
+			widget = ColorRect.new()
+			widget.color = Color(0.6, 0.4, 0.7, 0.8)  # Purple placeholder for textures
 			widget.custom_minimum_size = Vector2(64, 64)
-			widget.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		"ColorPickerButton":
 			widget = ColorPickerButton.new()
 			widget.color = Color(1, 0.5, 0.5)
@@ -680,8 +681,12 @@ func get_widgets() -> Array[Control]:
 func add_widget_from_data(widget_type: String, properties: Dictionary) -> Control:
 	var widget = _spawn_widget(widget_type)
 
-	# Restore size properties
-	if properties.has("minSizeX") or properties.has("minSizeY"):
+	# Restore size properties (prefer sizeX/sizeY, fallback to minSizeX/minSizeY)
+	if properties.has("sizeX") or properties.has("sizeY"):
+		var size_x = properties.get("sizeX", widget.custom_minimum_size.x)
+		var size_y = properties.get("sizeY", widget.custom_minimum_size.y)
+		widget.custom_minimum_size = Vector2(size_x, size_y)
+	elif properties.has("minSizeX") or properties.has("minSizeY"):
 		var min_x = properties.get("minSizeX", widget.custom_minimum_size.x)
 		var min_y = properties.get("minSizeY", widget.custom_minimum_size.y)
 		widget.custom_minimum_size = Vector2(min_x, min_y)

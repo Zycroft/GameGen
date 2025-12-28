@@ -553,7 +553,31 @@ class TscnParser:
         if node_specific.get('size_programmatic'):
             flags['sizeProgrammatic'] = True
 
-        # Common properties
+        # Position properties
+        if 'position' in props and isinstance(props['position'], dict):
+            result['positionX'] = props['position'].get('x', 0)
+            result['positionY'] = props['position'].get('y', 0)
+        elif 'offset_left' in props or 'offset_top' in props:
+            result['positionX'] = props.get('offset_left', 0)
+            result['positionY'] = props.get('offset_top', 0)
+
+        # Size properties
+        if 'size' in props and isinstance(props['size'], dict):
+            result['sizeX'] = props['size'].get('x', 0)
+            result['sizeY'] = props['size'].get('y', 0)
+        elif 'offset_right' in props and 'offset_left' in props:
+            result['sizeX'] = props['offset_right'] - props.get('offset_left', 0)
+            result['sizeY'] = props.get('offset_bottom', 0) - props.get('offset_top', 0)
+
+        if 'custom_minimum_size' in props and isinstance(props['custom_minimum_size'], dict):
+            result['minSizeX'] = props['custom_minimum_size'].get('x', 0)
+            result['minSizeY'] = props['custom_minimum_size'].get('y', 0)
+
+        # Texture for TextureRect, Sprite2D
+        if 'texture' in props:
+            result['texture'] = props['texture']
+
+        # Common text/value properties
         if 'text' in props:
             result['text'] = props['text']
         if 'placeholder_text' in props:
@@ -571,10 +595,18 @@ class TscnParser:
         if 'button_pressed' in props:
             result['button_pressed'] = props['button_pressed']
 
-        # Size properties
-        if 'custom_minimum_size' in props and isinstance(props['custom_minimum_size'], dict):
-            result['minSizeX'] = props['custom_minimum_size'].get('x', 0)
-            result['minSizeY'] = props['custom_minimum_size'].get('y', 0)
+        # Sprite properties
+        if 'hframes' in props:
+            result['hframes'] = props['hframes']
+        if 'vframes' in props:
+            result['vframes'] = props['vframes']
+        if 'frame' in props:
+            result['frame'] = props['frame']
+
+        # Scale
+        if 'scale' in props and isinstance(props['scale'], dict):
+            result['scaleX'] = props['scale'].get('x', 1)
+            result['scaleY'] = props['scale'].get('y', 1)
 
         return result, flags
 
