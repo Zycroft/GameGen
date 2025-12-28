@@ -584,6 +584,8 @@ func _on_widget_gui_input(event: InputEvent, widget: Control) -> void:
 			widget_context_menu.popup()
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				# Emit selected signal for the container
+				selected.emit(self)
 				# Start dragging widget
 				dragging_widget = widget
 				widget_drag_offset = widget.get_local_mouse_position()

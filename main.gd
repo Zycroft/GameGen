@@ -671,12 +671,28 @@ func _create_2d_node_container(node_type: String, props: Dictionary, node_name: 
 			placeholder.color = Color(0.5, 0.5, 0.5, 0.7)  # Gray default
 
 	placeholder.custom_minimum_size = Vector2(size_x, size_y)
+	placeholder.mouse_filter = Control.MOUSE_FILTER_STOP
+	placeholder.gui_input.connect(_on_placeholder_gui_input.bind(container))
 	container.inner_container.add_child(placeholder)
 
 	# Set container size
 	container.size = Vector2(size_x + 20, size_y + 40)
 
 	return container
+
+
+func _on_placeholder_gui_input(event: InputEvent, container: DraggableContainer) -> void:
+	"""Handle clicks on placeholder elements to select their container"""
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			container.selected.emit(container)
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			# Show properties for the container
+			var node_id = container.get_meta("node_id", -1)
+			if node_id >= 0:
+				var node_data = _find_node_data(node_id)
+				if not node_data.is_empty():
+					_show_properties_dialog(node_id, node_data)
 
 
 func _on_container_closed(container: Node) -> void:
