@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  ai-worker:
+    build: .
+    container_name: gamegen-ai-worker
+    restart: unless-stopped
+    environment:
+      - DYNAMODB_ENDPOINT=http://localhost:8001
+      - DYNAMODB_REGION=us-west-2
+      - OLLAMA_ENDPOINT=http://localhost:11434
+      - AI_PROMPTS_TABLE=AIPrompts
+      - POLL_INTERVAL=10
+      - REQUEST_TIMEOUT=600
+    network_mode: host
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

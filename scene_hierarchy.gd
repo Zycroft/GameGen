@@ -200,9 +200,16 @@ func _ready() -> void:
 
 	# Create HTTPRequest for Ollama API calls
 	claude_http_request = HTTPRequest.new()
-	claude_http_request.timeout = 120  # 2 minute timeout for slow models
+	claude_http_request.timeout = 600  # 10 minute timeout for slow models
 	add_child(claude_http_request)
 	claude_http_request.request_completed.connect(_on_claude_request_completed)
+
+	# Create HTTPRequest for AI Prompts DynamoDB operations
+	ai_dynamodb_http_request = HTTPRequest.new()
+	ai_dynamodb_http_request.timeout = 30
+	add_child(ai_dynamodb_http_request)
+	ai_dynamodb_http_request.request_completed.connect(_on_ai_dynamodb_request_completed)
+
 	_load_anthropic_config()
 
 
@@ -212,6 +219,11 @@ func _load_anthropic_config() -> void:
 		var config = JSON.parse_string(config_file.get_as_text())
 		if config and config.has("anthropic"):
 			anthropic_api_key = config["anthropic"].get("api_key", "")
+		if config and config.has("dynamodb"):
+			dynamodb_endpoint = config["dynamodb"].get("endpoint", "")
+			dynamodb_region = config["dynamodb"].get("region", "us-west-2")
+		if config and config.has("tables"):
+			ai_prompts_table = config["tables"].get("aiPrompts", "AIPrompts")
 
 
 func _create_context_menu() -> void:
@@ -693,8 +705,9 @@ func _on_project_item_activated(index: int) -> void:
 func _on_project_dialog_ok_pressed() -> void:
 	if selected_project_index >= 0 and selected_project_index < projects_list.size():
 		var selected_project = projects_list[selected_project_index]
+		current_project_id = selected_project.get("ID", -1)
 		current_project_name = selected_project.get("Name", "Unknown")
-		print("Selected project: ", current_project_name)
+		print("Selected project: ", current_project_name, " (ID: ", current_project_id, ")")
 		title_label.text = "Project: " + current_project_name
 		project_selected.emit(selected_project)
 		# Auto-load after selecting project
@@ -919,6 +932,7 @@ func _on_create_project_completed(_result: int, response_code: int, _headers: Pa
 			"GodotProjectPath": get_meta("pending_project_path", "")
 		}
 
+		current_project_id = new_project["ID"]
 		current_project_name = new_project["Name"]
 		title_label.text = "Project: " + current_project_name
 		project_selected.emit(new_project)
@@ -977,22 +991,83 @@ var ai_response_edit: TextEdit
 var ai_images_grid: GridContainer
 var ai_model_dropdown: OptionButton
 var ai_prompt_images: Array = []  # Array of {texture, claude_approved, user_approved}
+var saved_prompts_dropdown: OptionButton
+var saved_prompts_list: Array = []
 
 # Claude API
 var claude_http_request: HTTPRequest
 var anthropic_api_key: String = ""
+
+# DynamoDB for AI Prompts
+var ai_dynamodb_http_request: HTTPRequest
+var dynamodb_endpoint: String = ""
+var dynamodb_region: String = ""
+var ai_prompts_table: String = ""
+var current_prompt_id: String = ""
+var is_loading_prompts: bool = false
+
+# Project/Object identification for prompts
+var current_project_id: int = -1
+var current_object_id: int = -1
 
 
 func _show_ai_prompts_dialog() -> void:
 	if not ai_prompts_dialog:
 		_create_ai_prompts_dialog()
 
-	# Clear previous content
+	# Get object ID from context node
+	current_object_id = context_node_id
+
+	# Reset for new prompt
+	current_prompt_id = ""
 	ai_prompt_title_edit.text = ""
 	ai_prompt_content_edit.text = ""
+	ai_response_edit.text = ""
 	_clear_ai_images()
 
+	# Fetch saved prompts from DynamoDB for this specific object
+	_fetch_saved_prompts()
+
 	ai_prompts_dialog.popup_centered()
+
+
+func _fetch_saved_prompts() -> void:
+	if dynamodb_endpoint.is_empty():
+		print("DynamoDB endpoint not configured")
+		return
+
+	if current_project_id < 0 or current_object_id < 0:
+		print("Project or object ID not set, cannot fetch prompts")
+		saved_prompts_dropdown.clear()
+		saved_prompts_dropdown.add_item("-- New Prompt --")
+		return
+
+	is_loading_prompts = true
+	saved_prompts_dropdown.clear()
+	saved_prompts_dropdown.add_item("-- New Prompt --")
+	saved_prompts_dropdown.add_item("Loading...")
+	saved_prompts_dropdown.disabled = true
+
+	# Build the composite key
+	var project_object_id = str(current_project_id) + "_" + str(current_object_id)
+
+	# Query by partition key (projectObjectID)
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"KeyConditionExpression": "projectObjectID = :poid",
+		"ExpressionAttributeValues": {
+			":poid": {"S": project_object_id}
+		}
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.Query",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	ai_dynamodb_http_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
 
 
 func _create_ai_prompts_dialog() -> void:
@@ -1012,6 +1087,24 @@ func _create_ai_prompts_dialog() -> void:
 	main_vbox.offset_right = -15
 	main_vbox.offset_bottom = -15
 	ai_prompts_dialog.add_child(main_vbox)
+
+	# Saved prompts dropdown
+	var saved_hbox := HBoxContainer.new()
+	saved_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(saved_hbox)
+
+	var saved_label := Label.new()
+	saved_label.text = "Saved Prompts:"
+	saved_hbox.add_child(saved_label)
+
+	saved_prompts_dropdown = OptionButton.new()
+	saved_prompts_dropdown.add_item("-- New Prompt --")
+	saved_prompts_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	saved_prompts_dropdown.item_selected.connect(_on_saved_prompt_selected)
+	saved_hbox.add_child(saved_prompts_dropdown)
+
+	var separator := HSeparator.new()
+	main_vbox.add_child(separator)
 
 	# Prompt title (smaller text box)
 	var title_label := Label.new()
@@ -1045,6 +1138,7 @@ func _create_ai_prompts_dialog() -> void:
 
 	ai_regenerate_btn = Button.new()
 	ai_regenerate_btn.text = "Regenerate Prompt"
+	ai_regenerate_btn.disabled = true  # Temporarily disabled
 	ai_regenerate_btn.pressed.connect(_on_ai_regenerate_prompt_pressed)
 	prompt_hbox.add_child(ai_regenerate_btn)
 
@@ -1233,7 +1327,11 @@ func _on_claude_request_completed(result: int, response_code: int, _headers: Pac
 
 	if response_code == 200 and json:
 		if json.has("response"):
-			ai_response_edit.text = json["response"]
+			# Normalize line breaks - replace multiple newlines with single newline
+			var response = json["response"] as String
+			while response.contains("\n\n"):
+				response = response.replace("\n\n", "\n")
+			ai_response_edit.text = response.strip_edges()
 		else:
 			ai_response_edit.text = "Error: Unexpected response format\n" + response_text.left(500)
 	else:
@@ -1251,19 +1349,154 @@ func _on_ai_generate_pressed() -> void:
 
 
 func _on_ai_save_pressed() -> void:
-	var prompt_data = {
-		"title": ai_prompt_title_edit.text,
-		"content": ai_prompt_content_edit.text,
-		"images": []
+	if dynamodb_endpoint.is_empty():
+		print("Error: DynamoDB endpoint not configured")
+		return
+
+	if current_project_id < 0 or current_object_id < 0:
+		print("Error: Project or object ID not set")
+		return
+
+	# Generate a unique prompt ID if not editing existing
+	if current_prompt_id.is_empty():
+		current_prompt_id = str(Time.get_unix_time_from_system()) + "_" + str(randi())
+
+	var selected_model = ai_model_dropdown.get_item_text(ai_model_dropdown.selected)
+
+	# Build the composite key
+	var project_object_id = str(current_project_id) + "_" + str(current_object_id)
+
+	# Get node name from tree if available
+	var node_name = "Unknown"
+	if tree_items.has(current_object_id):
+		var tree_item = tree_items[current_object_id]
+		var node_data = tree_item.get_meta("node_data", {})
+		node_name = node_data.get("name", node_data.get("type", "Unknown"))
+
+	# Build DynamoDB PutItem request
+	var item = {
+		"projectObjectID": {"S": project_object_id},
+		"promptID": {"S": current_prompt_id},
+		"title": {"S": ai_prompt_title_edit.text},
+		"content": {"S": ai_prompt_content_edit.text},
+		"model": {"S": selected_model},
+		"response": {"S": ai_response_edit.text},
+		"status": {"S": "pending"},
+		"createdAt": {"N": str(Time.get_unix_time_from_system())},
+		"projectName": {"S": current_project_name if not current_project_name.is_empty() else "Unknown"},
+		"nodeName": {"S": node_name},
+		"projectID": {"N": str(current_project_id)},
+		"objectID": {"N": str(current_object_id)}
 	}
 
-	for img_data in ai_prompt_images:
-		if img_data["texture"]:
-			prompt_data["images"].append({
-				"claude_approved": img_data["claude_check"].button_pressed,
-				"user_approved": img_data["user_check"].button_pressed
-			})
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"Item": item
+	})
 
-	print("Saving AI prompt: ", prompt_data)
-	# TODO: Save to DynamoDB or local storage
-	ai_prompts_dialog.hide()
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.PutItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	var url = dynamodb_endpoint
+	print("Saving AI prompt to DynamoDB: ", project_object_id, " / ", current_prompt_id)
+
+	ai_dynamodb_http_request.request(url, headers, HTTPClient.METHOD_POST, request_body)
+
+
+func _on_ai_dynamodb_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS:
+		print("DynamoDB request failed with result: ", result)
+		if is_loading_prompts:
+			is_loading_prompts = false
+			saved_prompts_dropdown.clear()
+			saved_prompts_dropdown.add_item("-- New Prompt --")
+			saved_prompts_dropdown.disabled = false
+		return
+
+	var response_text = body.get_string_from_utf8()
+	var json = JSON.parse_string(response_text)
+
+	if response_code == 200:
+		# Check if this is a Scan response (loading prompts)
+		if json and json.has("Items"):
+			_handle_prompts_loaded(json["Items"])
+		else:
+			# This is a PutItem response (saving)
+			print("AI prompt saved successfully to DynamoDB")
+			ai_prompts_dialog.hide()
+	else:
+		print("DynamoDB error: HTTP ", response_code, " - ", response_text)
+		if json and json.has("message"):
+			print("Error message: ", json["message"])
+		if is_loading_prompts:
+			is_loading_prompts = false
+			saved_prompts_dropdown.clear()
+			saved_prompts_dropdown.add_item("-- New Prompt --")
+			saved_prompts_dropdown.disabled = false
+
+
+func _handle_prompts_loaded(items: Array) -> void:
+	is_loading_prompts = false
+	saved_prompts_list.clear()
+	saved_prompts_dropdown.clear()
+	saved_prompts_dropdown.add_item("-- New Prompt --")
+
+	for item in items:
+		var prompt_data = {}
+		for key in item.keys():
+			var value = item[key]
+			if value.has("S"):
+				prompt_data[key] = value["S"]
+			elif value.has("N"):
+				prompt_data[key] = value["N"]
+		saved_prompts_list.append(prompt_data)
+
+	# Sort by createdAt descending (newest first)
+	saved_prompts_list.sort_custom(func(a, b):
+		var a_time = float(a.get("createdAt", "0"))
+		var b_time = float(b.get("createdAt", "0"))
+		return a_time > b_time
+	)
+
+	# Add to dropdown
+	for prompt_data in saved_prompts_list:
+		var title = prompt_data.get("title", "Untitled")
+		if title.is_empty():
+			title = "Untitled"
+		saved_prompts_dropdown.add_item(title)
+
+	saved_prompts_dropdown.disabled = false
+	print("Loaded ", saved_prompts_list.size(), " saved prompts")
+
+
+func _on_saved_prompt_selected(index: int) -> void:
+	if index == 0:
+		# "New Prompt" selected - clear fields
+		current_prompt_id = ""
+		ai_prompt_title_edit.text = ""
+		ai_prompt_content_edit.text = ""
+		ai_response_edit.text = ""
+		return
+
+	# Get the saved prompt data (index - 1 because first item is "New Prompt")
+	var prompt_index = index - 1
+	if prompt_index >= 0 and prompt_index < saved_prompts_list.size():
+		var prompt_data = saved_prompts_list[prompt_index]
+		current_prompt_id = prompt_data.get("promptID", "")
+		ai_prompt_title_edit.text = prompt_data.get("title", "")
+		ai_prompt_content_edit.text = prompt_data.get("content", "")
+		ai_response_edit.text = prompt_data.get("response", "")
+
+		# Set model dropdown if saved
+		var saved_model = prompt_data.get("model", "")
+		if not saved_model.is_empty():
+			for i in range(ai_model_dropdown.item_count):
+				if ai_model_dropdown.get_item_text(i) == saved_model:
+					ai_model_dropdown.selected = i
+					break
+
+		print("Loaded prompt: ", current_prompt_id)

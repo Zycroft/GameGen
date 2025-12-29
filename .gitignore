@@ -4,3 +4,10 @@
 # Python cache
 __pycache__/
 *.pyc
+
+# Config with secrets
+config.json
+
+# Temporary files
+.gamegen-sync
+*.uid

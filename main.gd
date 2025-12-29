@@ -812,8 +812,9 @@ func _create_container(container_type: String) -> DraggableContainer:
 	container.unlinked.connect(_on_container_unlinked)
 	container.selected.connect(_on_container_selected_in_viewport)
 
-	# Track this container
+	# Track this container and set project ID
 	all_containers.append(container)
+	container.current_project_id = current_project_id
 
 	return container
 
@@ -842,8 +843,9 @@ func _create_standalone_widget(widget_type: String, props: Dictionary, node_name
 	container.unlinked.connect(_on_container_unlinked)
 	container.selected.connect(_on_container_selected_in_viewport)
 
-	# Track this container
+	# Track this container and set project ID
 	all_containers.append(container)
+	container.current_project_id = current_project_id
 
 	# Add the actual widget to the container
 	var size_x = props.get("sizeX", props.get("minSizeX", 64))
@@ -880,8 +882,9 @@ func _create_2d_node_container(node_type: String, props: Dictionary, node_name: 
 	container.unlinked.connect(_on_container_unlinked)
 	container.selected.connect(_on_container_selected_in_viewport)
 
-	# Track this container
+	# Track this container and set project ID
 	all_containers.append(container)
+	container.current_project_id = current_project_id
 
 	# Create placeholder based on node type
 	var size_x = props.get("sizeX", 64)
@@ -956,6 +959,7 @@ func _on_container_unlinked(container: DraggableContainer) -> void:
 		# Add back to main scene
 		add_child(container)
 		all_containers.append(container)
+		container.current_project_id = current_project_id
 		print("Unlinked ", container.container_type, " from parent")
 
 
@@ -983,6 +987,7 @@ func _on_container_drag_ended(dragged_container: DraggableContainer) -> void:
 			# Add back to main scene
 			add_child(dragged_container)
 			all_containers.append(dragged_container)
+			dragged_container.current_project_id = current_project_id
 			print("Removed ", dragged_container.container_type, " from parent")
 
 
@@ -1040,6 +1045,14 @@ func _on_project_selected(project_data: Dictionary) -> void:
 	if not scene_root.is_empty():
 		scene_root["name"] = current_project_name
 		_refresh_hierarchy()
+
+	# Propagate project ID to all containers for AI prompts
+	_update_containers_project_id()
+
+
+func _update_containers_project_id() -> void:
+	for container in all_containers:
+		container.current_project_id = current_project_id
 
 
 # ==================== SAVE ====================
