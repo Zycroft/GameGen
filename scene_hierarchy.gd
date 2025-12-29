@@ -1014,6 +1014,8 @@ var saved_prompts_list: Array = []
 var ai_status_label: Label
 var ai_status_timer: Timer
 var current_prompt_status: String = ""
+var image_status_label: Label
+var current_image_status: String = ""
 
 # AI API
 var claude_http_request: HTTPRequest
@@ -1270,6 +1272,20 @@ func _create_ai_prompts_dialog() -> void:
 	image_model_dropdown.custom_minimum_size.x = 180
 	image_service_hbox.add_child(image_model_dropdown)
 
+	# Add spacer to push status to right
+	var image_spacer := Control.new()
+	image_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	image_service_hbox.add_child(image_spacer)
+
+	var image_status_title := Label.new()
+	image_status_title.text = "Status:"
+	image_service_hbox.add_child(image_status_title)
+
+	image_status_label = Label.new()
+	image_status_label.text = "Not saved"
+	image_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	image_service_hbox.add_child(image_status_label)
+
 	# Initialize models for first image service
 	_update_image_models_for_service(0)
 
@@ -1511,7 +1527,10 @@ func _on_ai_save_pressed() -> void:
 	if current_prompt_id.is_empty():
 		current_prompt_id = str(Time.get_unix_time_from_system()) + "_" + str(randi())
 
+	var selected_service = ai_service_dropdown.get_item_text(ai_service_dropdown.selected)
 	var selected_model = ai_model_dropdown.get_item_text(ai_model_dropdown.selected)
+	var selected_image_service = image_service_dropdown.get_item_text(image_service_dropdown.selected)
+	var selected_image_model = image_model_dropdown.get_item_text(image_model_dropdown.selected)
 
 	# Build the composite key
 	var project_object_id = str(current_project_id) + "_" + str(current_object_id)
@@ -1529,7 +1548,11 @@ func _on_ai_save_pressed() -> void:
 		"promptID": {"S": current_prompt_id},
 		"title": {"S": ai_prompt_title_edit.text},
 		"content": {"S": ai_prompt_content_edit.text},
+		"service": {"S": selected_service},
 		"model": {"S": selected_model},
+		"imageService": {"S": selected_image_service},
+		"imageModel": {"S": selected_image_model},
+		"imageStatus": {"S": "pending"},
 		"response": {"S": ai_response_edit.text},
 		"status": {"S": "pending"},
 		"createdAt": {"N": str(Time.get_unix_time_from_system())},
@@ -1556,6 +1579,7 @@ func _on_ai_save_pressed() -> void:
 
 	# Update status to pending and start refresh
 	_update_status_display("pending")
+	_update_image_status_display("pending")
 	_start_status_refresh()
 
 	ai_dynamodb_http_request.request(url, headers, HTTPClient.METHOD_POST, request_body)
@@ -1637,6 +1661,7 @@ func _on_saved_prompt_selected(index: int) -> void:
 		ai_prompt_content_edit.text = ""
 		ai_response_edit.text = ""
 		_update_status_display("new")
+		_update_image_status_display("new")
 		return
 
 	# Get the saved prompt data (index - 1 because first item is "New Prompt")
@@ -1648,6 +1673,15 @@ func _on_saved_prompt_selected(index: int) -> void:
 		ai_prompt_content_edit.text = prompt_data.get("content", "")
 		ai_response_edit.text = prompt_data.get("response", "")
 
+		# Set service dropdown if saved
+		var saved_service = prompt_data.get("service", "")
+		if not saved_service.is_empty():
+			for i in range(ai_service_dropdown.item_count):
+				if ai_service_dropdown.get_item_text(i) == saved_service:
+					ai_service_dropdown.selected = i
+					_update_models_for_service(i)
+					break
+
 		# Set model dropdown if saved
 		var saved_model = prompt_data.get("model", "")
 		if not saved_model.is_empty():
@@ -1656,11 +1690,32 @@ func _on_saved_prompt_selected(index: int) -> void:
 					ai_model_dropdown.selected = i
 					break
 
+		# Set image service dropdown if saved
+		var saved_image_service = prompt_data.get("imageService", "")
+		if not saved_image_service.is_empty():
+			for i in range(image_service_dropdown.item_count):
+				if image_service_dropdown.get_item_text(i) == saved_image_service:
+					image_service_dropdown.selected = i
+					_update_image_models_for_service(i)
+					break
+
+		# Set image model dropdown if saved
+		var saved_image_model = prompt_data.get("imageModel", "")
+		if not saved_image_model.is_empty():
+			for i in range(image_model_dropdown.item_count):
+				if image_model_dropdown.get_item_text(i) == saved_image_model:
+					image_model_dropdown.selected = i
+					break
+
 		# Update status and start refresh if needed
 		var status = prompt_data.get("status", "")
 		_update_status_display(status)
 		if status == "pending" or status == "processing":
 			_start_status_refresh()
+
+		# Update image status
+		var image_status = prompt_data.get("imageStatus", "")
+		_update_image_status_display(image_status)
 
 		print("Loaded prompt: ", current_prompt_id)
 
@@ -1689,6 +1744,32 @@ func _update_status_display(status: String) -> void:
 		_:
 			ai_status_label.text = status
 			ai_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+
+
+func _update_image_status_display(status: String) -> void:
+	current_image_status = status
+	if not image_status_label:
+		return
+
+	match status:
+		"new", "":
+			image_status_label.text = "Not saved"
+			image_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+		"pending":
+			image_status_label.text = "⏳ Pending..."
+			image_status_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
+		"processing":
+			image_status_label.text = "⚙️ Processing..."
+			image_status_label.add_theme_color_override("font_color", Color(0.2, 0.6, 1.0))
+		"completed":
+			image_status_label.text = "✓ Completed"
+			image_status_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.2))
+		"error":
+			image_status_label.text = "✗ Error"
+			image_status_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		_:
+			image_status_label.text = status
+			image_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 
 
 func _start_status_refresh() -> void:
