@@ -35,9 +35,9 @@ jobs:
           port: ${{ secrets.SERVER_PORT }}
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
-            docker-compose down || true
-            docker-compose up -d --build
+            docker compose down || true
+            docker compose up -d --build
             echo "--- Container Status ---"
-            docker-compose ps
+            docker compose ps
             echo "--- Recent Logs ---"
-            docker-compose logs --tail=30
+            docker compose logs --tail=30
