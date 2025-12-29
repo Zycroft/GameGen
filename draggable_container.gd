@@ -107,8 +107,9 @@ func _ready() -> void:
 	# Clip children that overflow the content panel
 	content_panel.clip_contents = true
 
-	# Create HTTPRequest for Claude API calls
+	# Create HTTPRequest for Ollama API calls
 	claude_http_request = HTTPRequest.new()
+	claude_http_request.timeout = 120  # 2 minute timeout for slow models
 	add_child(claude_http_request)
 	claude_http_request.request_completed.connect(_on_claude_request_completed)
 	_load_anthropic_config()
@@ -1148,7 +1149,7 @@ func _show_ai_prompts_dialog() -> void:
 func _create_ai_prompts_dialog() -> void:
 	ai_prompts_dialog = Window.new()
 	ai_prompts_dialog.title = "AI Prompts"
-	ai_prompts_dialog.size = Vector2i(650, 700)
+	ai_prompts_dialog.size = Vector2i(700, 900)
 	ai_prompts_dialog.transient = true
 	ai_prompts_dialog.exclusive = false
 	ai_prompts_dialog.visible = false
@@ -1208,9 +1209,9 @@ func _create_ai_prompts_dialog() -> void:
 	model_hbox.add_child(model_label)
 
 	ai_model_dropdown = OptionButton.new()
-	ai_model_dropdown.add_item("claude-sonnet-4-20250514")
-	ai_model_dropdown.add_item("claude-opus-4-20250514")
-	ai_model_dropdown.add_item("claude-haiku-3-5-20241022")
+	ai_model_dropdown.add_item("llama3.2:3b")
+	ai_model_dropdown.add_item("qwen2.5:7b-instruct")
+	ai_model_dropdown.add_item("mistral:7b")
 	ai_model_dropdown.custom_minimum_size.x = 250
 	model_hbox.add_child(ai_model_dropdown)
 
@@ -1331,10 +1332,6 @@ func _on_ai_regenerate_prompt_pressed() -> void:
 		ai_response_edit.text = "Error: Please enter a prompt first."
 		return
 
-	if anthropic_api_key.is_empty():
-		ai_response_edit.text = "Error: API key not configured in config.json"
-		return
-
 	ai_response_edit.text = "Generating response..."
 	ai_regenerate_btn.disabled = true
 
@@ -1342,39 +1339,54 @@ func _on_ai_regenerate_prompt_pressed() -> void:
 
 	var body = JSON.stringify({
 		"model": selected_model,
-		"max_tokens": 1024,
-		"messages": [{"role": "user", "content": prompt}]
+		"prompt": prompt,
+		"stream": false
 	})
 
 	var headers = PackedStringArray([
-		"Content-Type: application/json",
-		"x-api-key: " + anthropic_api_key,
-		"anthropic-version: 2023-06-01"
+		"Content-Type: application/json"
 	])
 
 	claude_http_request.request(
-		"https://api.anthropic.com/v1/messages",
+		"https://zycroft.duckdns.org/ollama/api/generate",
 		headers,
 		HTTPClient.METHOD_POST,
 		body
 	)
 
 
-func _on_claude_request_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+func _on_claude_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	ai_regenerate_btn.disabled = false
+
+	# Check for HTTP request errors
+	if result != HTTPRequest.RESULT_SUCCESS:
+		var error_names = {
+			HTTPRequest.RESULT_CANT_CONNECT: "Can't connect to server",
+			HTTPRequest.RESULT_CANT_RESOLVE: "Can't resolve hostname",
+			HTTPRequest.RESULT_CONNECTION_ERROR: "Connection error",
+			HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR: "TLS handshake error",
+			HTTPRequest.RESULT_NO_RESPONSE: "No response from server",
+			HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED: "Response too large",
+			HTTPRequest.RESULT_REQUEST_FAILED: "Request failed",
+			HTTPRequest.RESULT_TIMEOUT: "Request timed out"
+		}
+		ai_response_edit.text = "Error: " + error_names.get(result, "Unknown error " + str(result))
+		return
 
 	var response_text = body.get_string_from_utf8()
 	var json = JSON.parse_string(response_text)
 
 	if response_code == 200 and json:
-		if json.has("content") and json["content"].size() > 0:
-			ai_response_edit.text = json["content"][0]["text"]
+		if json.has("response"):
+			ai_response_edit.text = json["response"]
 		else:
-			ai_response_edit.text = "Error: Unexpected response format"
+			ai_response_edit.text = "Error: Unexpected response format\n" + response_text.left(500)
 	else:
-		var error_msg = "Error: " + str(response_code)
+		var error_msg = "Error: HTTP " + str(response_code)
 		if json and json.has("error"):
-			error_msg += " - " + json["error"].get("message", "Unknown error")
+			error_msg += " - " + str(json["error"])
+		elif response_text.length() > 0:
+			error_msg += "\n" + response_text.left(200)
 		ai_response_edit.text = error_msg
 
 
