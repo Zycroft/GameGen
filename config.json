@@ -35,5 +35,19 @@
 			"grok-3-mini",
 			"grok-2"
 		]
+	},
+	"image_services": {
+		"OpenAI": [
+			"gpt-image-1",
+			"dall-e-3"
+		],
+		"Stability": [
+			"stable-diffusion-xl",
+			"stable-diffusion-3"
+		],
+		"Midjourney": [
+			"midjourney-v6",
+			"midjourney-v5"
+		]
 	}
 }

@@ -228,6 +228,8 @@ func _load_config() -> void:
 			ai_prompts_table = config["tables"].get("aiPrompts", "AIPrompts")
 		if config and config.has("ai_services"):
 			ai_services = config["ai_services"]
+		if config and config.has("image_services"):
+			image_services = config["image_services"]
 
 	# Load API keys
 	var api_config_file = FileAccess.open("res://config-api.json", FileAccess.READ)
@@ -1003,6 +1005,9 @@ var ai_images_grid: GridContainer
 var ai_service_dropdown: OptionButton
 var ai_model_dropdown: OptionButton
 var ai_services: Dictionary = {}
+var image_service_dropdown: OptionButton
+var image_model_dropdown: OptionButton
+var image_services: Dictionary = {}
 var ai_prompt_images: Array = []  # Array of {texture, claude_approved, user_approved}
 var saved_prompts_dropdown: OptionButton
 var saved_prompts_list: Array = []
@@ -1236,6 +1241,38 @@ func _create_ai_prompts_dialog() -> void:
 	# Add placeholder images for demo
 	_add_placeholder_images(4)
 
+	# Image service and model selection row
+	var image_service_hbox := HBoxContainer.new()
+	image_service_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(image_service_hbox)
+
+	var image_service_label := Label.new()
+	image_service_label.text = "Image Service:"
+	image_service_hbox.add_child(image_service_label)
+
+	image_service_dropdown = OptionButton.new()
+	if image_services.is_empty():
+		image_service_dropdown.add_item("OpenAI")
+		image_service_dropdown.add_item("Stability")
+		image_service_dropdown.add_item("Midjourney")
+	else:
+		for service_name in image_services.keys():
+			image_service_dropdown.add_item(service_name)
+	image_service_dropdown.custom_minimum_size.x = 120
+	image_service_dropdown.item_selected.connect(_on_image_service_changed)
+	image_service_hbox.add_child(image_service_dropdown)
+
+	var image_model_label := Label.new()
+	image_model_label.text = "Model:"
+	image_service_hbox.add_child(image_model_label)
+
+	image_model_dropdown = OptionButton.new()
+	image_model_dropdown.custom_minimum_size.x = 180
+	image_service_hbox.add_child(image_model_dropdown)
+
+	# Initialize models for first image service
+	_update_image_models_for_service(0)
+
 	# Button row
 	var dialog_button_row := HBoxContainer.new()
 	dialog_button_row.alignment = BoxContainer.ALIGNMENT_END
@@ -1345,6 +1382,30 @@ func _update_models_for_service(service_index: int) -> void:
 		if ai_services.has(service_name):
 			for model in ai_services[service_name]:
 				ai_model_dropdown.add_item(model)
+
+
+func _on_image_service_changed(index: int) -> void:
+	_update_image_models_for_service(index)
+
+
+func _update_image_models_for_service(service_index: int) -> void:
+	image_model_dropdown.clear()
+
+	if image_services.is_empty():
+		# Fallback defaults if no config
+		var default_models = {
+			0: ["gpt-image-1", "dall-e-3"],
+			1: ["stable-diffusion-xl", "stable-diffusion-3"],
+			2: ["midjourney-v6", "midjourney-v5"]
+		}
+		if default_models.has(service_index):
+			for model in default_models[service_index]:
+				image_model_dropdown.add_item(model)
+	else:
+		var service_name = image_service_dropdown.get_item_text(service_index)
+		if image_services.has(service_name):
+			for model in image_services[service_name]:
+				image_model_dropdown.add_item(model)
 
 
 func _clear_ai_images() -> void:
