@@ -1531,20 +1531,23 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 			container.set_container_type(node_type)
 			container.parent_container = _parent_node
 			container.unlink_button.visible = true
+			container.custom_minimum_size = Vector2.ZERO
 			# Connect signals
 			container.closed.connect(_on_container_closed.bind(container))
 			container.drag_ended.connect(_on_container_drag_ended)
 			container.unlinked.connect(_on_container_unlinked)
 			container.selected.connect(_on_container_selected_in_viewport)
-			# Use local position for child containers
-			container.position = Vector2(props.get("positionX", 10), props.get("positionY", 30))
+			# Fill parent after layout is ready
+			container.fill_parent_content.call_deferred()
 		else:
 			# Top-level container
 			container = _create_container(node_type)
 			container.global_position = viewport_offset + Vector2(props.get("positionX", 100), props.get("positionY", 100))
 
 		container.set_meta("node_id", node_id)
-		container.size = Vector2(props.get("sizeX", 200), props.get("sizeY", 150))
+		# Only set size for top-level containers (child containers fill parent)
+		if not parent_is_container:
+			container.size = Vector2(props.get("sizeX", 200), props.get("sizeY", 150))
 
 		var node_name = node_data.get("name", "")
 		if node_name and node_name != node_type:
@@ -1582,18 +1585,19 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		var pos_y = props.get("positionY", 100)
 
 		if parent_is_container:
-			# Child of another container
+			# Child of another container - add to content panel
 			container = DraggableContainerScene.instantiate()
 			_parent_node.get_content_panel().add_child(container)
 			container.set_meta("container_id", node_id)
 			container.set_container_type(node_type)
 			container.parent_container = _parent_node
 			container.unlink_button.visible = true
+			container.custom_minimum_size = Vector2.ZERO
 			container.closed.connect(_on_container_closed.bind(container))
 			container.drag_ended.connect(_on_container_drag_ended)
 			container.unlinked.connect(_on_container_unlinked)
 			container.selected.connect(_on_container_selected_in_viewport)
-			container.position = Vector2(pos_x, pos_y)
+			container.fill_parent_content.call_deferred()
 			if node_name and node_name != node_type:
 				container.set_container_name(node_name)
 		else:
@@ -1602,7 +1606,8 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 			container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 
 		container.set_meta("node_id", node_id)
-		if props.has("sizeX") and props.has("sizeY"):
+		# Only set size for top-level containers
+		if not parent_is_container and props.has("sizeX") and props.has("sizeY"):
 			container.size = Vector2(props.get("sizeX", 200), props.get("sizeY", 150))
 		all_nodes[node_id] = container
 
@@ -1668,11 +1673,11 @@ func _create_container_from_data(data: Dictionary, parent: DraggableContainer) -
 	if parent == null:
 		# Top-level container
 		container = _create_container(container_type)
+		container.global_position = viewport_offset + Vector2(data.get("positionX", 0), data.get("positionY", 0))
+		container.size = Vector2(data.get("sizeX", 200), data.get("sizeY", 150))
 	else:
-		# Child container - create and add to parent first, then configure
+		# Child container - add to parent's content panel
 		container = DraggableContainerScene.instantiate()
-
-		# Add to parent's content panel FIRST so @onready vars are initialized
 		parent.get_content_panel().add_child(container)
 
 		# Now we can safely configure
@@ -1681,6 +1686,7 @@ func _create_container_from_data(data: Dictionary, parent: DraggableContainer) -
 		container.set_container_type(container_type)
 		container.parent_container = parent
 		container.unlink_button.visible = true
+		container.custom_minimum_size = Vector2.ZERO
 
 		# Connect signals
 		container.closed.connect(_on_container_closed.bind(container))
@@ -1688,14 +1694,8 @@ func _create_container_from_data(data: Dictionary, parent: DraggableContainer) -
 		container.unlinked.connect(_on_container_unlinked)
 		container.selected.connect(_on_container_selected_in_viewport)
 
-	# Set position and size
-	if parent == null:
-		# Top-level container uses global position with viewport offset
-		container.global_position = viewport_offset + Vector2(data.get("positionX", 0), data.get("positionY", 0))
-	else:
-		# Child container uses local position relative to parent
-		container.position = Vector2(data.get("positionX", 0), data.get("positionY", 0))
-	container.size = Vector2(data.get("sizeX", 200), data.get("sizeY", 150))
+		# Fill parent after layout is ready
+		container.fill_parent_content.call_deferred()
 
 	# Set container name if present
 	var saved_name = data.get("name", "")

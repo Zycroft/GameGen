@@ -104,6 +104,8 @@ func _ready() -> void:
 
 	# Connect content panel right-click
 	content_panel.gui_input.connect(_on_content_panel_gui_input)
+	# Clip children that overflow the content panel
+	content_panel.clip_contents = true
 
 	# Create HTTPRequest for Claude API calls
 	claude_http_request = HTTPRequest.new()
@@ -289,6 +291,27 @@ func _on_name_focus_lost() -> void:
 
 func get_content_panel() -> Panel:
 	return content_panel
+
+
+func get_inner_container() -> Container:
+	return inner_container
+
+
+func fill_parent_content() -> void:
+	"""Make this container fill its parent's content area"""
+	if not parent_container:
+		return
+	var parent_content = parent_container.get_content_panel()
+	if not parent_content:
+		return
+	# Reset to position mode first
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	# Now set position and size directly
+	position = Vector2(2, 2)
+	var target_size = parent_content.size - Vector2(4, 4)
+	# Ensure minimum reasonable size
+	target_size = target_size.max(Vector2(50, 50))
+	set_deferred("size", target_size)
 
 
 func get_child_containers() -> Array[DraggableContainer]:
