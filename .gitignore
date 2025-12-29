@@ -5,8 +5,8 @@
 __pycache__/
 *.pyc
 
-# Config with secrets
-config.json
+# API keys (secrets)
+config-api.json
 
 # Temporary files
 .gamegen-sync

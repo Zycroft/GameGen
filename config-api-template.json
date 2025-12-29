@@ -1,0 +1,18 @@
+{
+	"Zycroft": {
+		"api_key": "",
+		"endpoint": "https://your-ollama-endpoint/api/generate"
+	},
+	"OpenAI": {
+		"api_key": "your-openai-api-key"
+	},
+	"Claude": {
+		"api_key": "your-anthropic-api-key"
+	},
+	"Gemini": {
+		"api_key": "your-google-api-key"
+	},
+	"Grok": {
+		"api_key": "your-xai-api-key"
+	}
+}

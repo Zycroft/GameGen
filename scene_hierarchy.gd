@@ -210,18 +210,17 @@ func _ready() -> void:
 	add_child(ai_dynamodb_http_request)
 	ai_dynamodb_http_request.request_completed.connect(_on_ai_dynamodb_request_completed)
 
-	_load_anthropic_config()
+	_load_config()
 
 	# Automatically fetch projects and show selection dialog on startup
 	call_deferred("_fetch_projects_from_dynamodb")
 
 
-func _load_anthropic_config() -> void:
+func _load_config() -> void:
+	# Load main config
 	var config_file = FileAccess.open("res://config.json", FileAccess.READ)
 	if config_file:
 		var config = JSON.parse_string(config_file.get_as_text())
-		if config and config.has("anthropic"):
-			anthropic_api_key = config["anthropic"].get("api_key", "")
 		if config and config.has("dynamodb"):
 			dynamodb_endpoint = config["dynamodb"].get("endpoint", "")
 			dynamodb_region = config["dynamodb"].get("region", "us-west-2")
@@ -229,6 +228,13 @@ func _load_anthropic_config() -> void:
 			ai_prompts_table = config["tables"].get("aiPrompts", "AIPrompts")
 		if config and config.has("ai_services"):
 			ai_services = config["ai_services"]
+
+	# Load API keys
+	var api_config_file = FileAccess.open("res://config-api.json", FileAccess.READ)
+	if api_config_file:
+		var api_config = JSON.parse_string(api_config_file.get_as_text())
+		if api_config:
+			ai_api_keys = api_config
 
 
 func _create_context_menu() -> void:
@@ -996,7 +1002,7 @@ var ai_response_edit: TextEdit
 var ai_images_grid: GridContainer
 var ai_service_dropdown: OptionButton
 var ai_model_dropdown: OptionButton
-var ai_services: Array = []
+var ai_services: Dictionary = {}
 var ai_prompt_images: Array = []  # Array of {texture, claude_approved, user_approved}
 var saved_prompts_dropdown: OptionButton
 var saved_prompts_list: Array = []
@@ -1004,9 +1010,9 @@ var ai_status_label: Label
 var ai_status_timer: Timer
 var current_prompt_status: String = ""
 
-# Claude API
+# AI API
 var claude_http_request: HTTPRequest
-var anthropic_api_key: String = ""
+var ai_api_keys: Dictionary = {}
 
 # DynamoDB for AI Prompts
 var ai_dynamodb_http_request: HTTPRequest
@@ -1167,9 +1173,10 @@ func _create_ai_prompts_dialog() -> void:
 		ai_service_dropdown.add_item("OpenAI")
 		ai_service_dropdown.add_item("Claude")
 	else:
-		for service in ai_services:
-			ai_service_dropdown.add_item(service)
+		for service_name in ai_services.keys():
+			ai_service_dropdown.add_item(service_name)
 	ai_service_dropdown.custom_minimum_size.x = 120
+	ai_service_dropdown.item_selected.connect(_on_ai_service_changed)
 	service_model_hbox.add_child(ai_service_dropdown)
 
 	var model_label := Label.new()
@@ -1177,11 +1184,11 @@ func _create_ai_prompts_dialog() -> void:
 	service_model_hbox.add_child(model_label)
 
 	ai_model_dropdown = OptionButton.new()
-	ai_model_dropdown.add_item("llama3.2:3b")
-	ai_model_dropdown.add_item("qwen2.5:7b-instruct")
-	ai_model_dropdown.add_item("mistral:7b")
 	ai_model_dropdown.custom_minimum_size.x = 200
 	service_model_hbox.add_child(ai_model_dropdown)
+
+	# Initialize models for first service
+	_update_models_for_service(0)
 
 	# Status indicator
 	var status_hbox := HBoxContainer.new()
@@ -1314,6 +1321,30 @@ func _add_image_slot(texture: Texture2D) -> void:
 		"user_check": user_check,
 		"texture": texture
 	})
+
+
+func _on_ai_service_changed(index: int) -> void:
+	_update_models_for_service(index)
+
+
+func _update_models_for_service(service_index: int) -> void:
+	ai_model_dropdown.clear()
+
+	if ai_services.is_empty():
+		# Fallback defaults if no config
+		var default_models = {
+			0: ["llama3.2:3b", "qwen2.5:7b-instruct", "mistral:7b"],
+			1: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+			2: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-haiku-20241022"]
+		}
+		if default_models.has(service_index):
+			for model in default_models[service_index]:
+				ai_model_dropdown.add_item(model)
+	else:
+		var service_name = ai_service_dropdown.get_item_text(service_index)
+		if ai_services.has(service_name):
+			for model in ai_services[service_name]:
+				ai_model_dropdown.add_item(model)
 
 
 func _clear_ai_images() -> void:
