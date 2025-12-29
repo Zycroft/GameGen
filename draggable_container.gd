@@ -1143,6 +1143,9 @@ var ai_model_dropdown: OptionButton
 var ai_prompt_images: Array = []
 var saved_prompts_dropdown: OptionButton
 var saved_prompts_list: Array = []
+var ai_status_label: Label
+var ai_status_timer: Timer
+var current_prompt_status: String = ""
 
 # Claude API
 var claude_http_request: HTTPRequest
@@ -1308,6 +1311,20 @@ func _create_ai_prompts_dialog() -> void:
 	ai_model_dropdown.custom_minimum_size.x = 250
 	model_hbox.add_child(ai_model_dropdown)
 
+	# Status indicator
+	var status_hbox := HBoxContainer.new()
+	status_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(status_hbox)
+
+	var status_title := Label.new()
+	status_title.text = "Status:"
+	status_hbox.add_child(status_title)
+
+	ai_status_label = Label.new()
+	ai_status_label.text = "Not saved"
+	ai_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	status_hbox.add_child(ai_status_label)
+
 	# AI Response text box (larger than prompt content)
 	var response_label := Label.new()
 	response_label.text = "AI Response:"
@@ -1362,7 +1379,16 @@ func _create_ai_prompts_dialog() -> void:
 	close_btn.pressed.connect(func(): ai_prompts_dialog.hide())
 	button_row.add_child(close_btn)
 
-	ai_prompts_dialog.close_requested.connect(func(): ai_prompts_dialog.hide())
+	ai_prompts_dialog.close_requested.connect(func():
+		ai_prompts_dialog.hide()
+		_stop_status_refresh()
+	)
+
+	# Status refresh timer
+	ai_status_timer = Timer.new()
+	ai_status_timer.wait_time = 3.0
+	ai_status_timer.timeout.connect(_on_status_timer_timeout)
+	add_child(ai_status_timer)
 
 
 func _add_placeholder_images(count: int) -> void:
@@ -1539,6 +1565,10 @@ func _on_ai_save_pressed() -> void:
 	var url = dynamodb_endpoint
 	print("Saving AI prompt to DynamoDB: ", project_object_id, " / ", current_prompt_id)
 
+	# Update status to pending and start refresh
+	_update_status_display("pending")
+	_start_status_refresh()
+
 	dynamodb_http_request.request(url, headers, HTTPClient.METHOD_POST, request_body)
 
 
@@ -1609,12 +1639,15 @@ func _handle_prompts_loaded(items: Array) -> void:
 
 
 func _on_saved_prompt_selected(index: int) -> void:
+	_stop_status_refresh()
+
 	if index == 0:
 		# "New Prompt" selected - clear fields
 		current_prompt_id = ""
 		ai_prompt_title_edit.text = ""
 		ai_prompt_content_edit.text = ""
 		ai_response_edit.text = ""
+		_update_status_display("new")
 		return
 
 	# Get the saved prompt data (index - 1 because first item is "New Prompt")
@@ -1634,4 +1667,119 @@ func _on_saved_prompt_selected(index: int) -> void:
 					ai_model_dropdown.selected = i
 					break
 
+		# Update status and start refresh if needed
+		var status = prompt_data.get("status", "")
+		_update_status_display(status)
+		if status == "pending" or status == "processing":
+			_start_status_refresh()
+
 		print("Loaded prompt: ", current_prompt_id)
+
+
+func _update_status_display(status: String) -> void:
+	current_prompt_status = status
+	if not ai_status_label:
+		return
+
+	match status:
+		"new", "":
+			ai_status_label.text = "Not saved"
+			ai_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+		"pending":
+			ai_status_label.text = "⏳ Pending..."
+			ai_status_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
+		"processing":
+			ai_status_label.text = "⚙️ Processing..."
+			ai_status_label.add_theme_color_override("font_color", Color(0.2, 0.6, 1.0))
+		"completed":
+			ai_status_label.text = "✓ Completed"
+			ai_status_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.2))
+		"error":
+			ai_status_label.text = "✗ Error"
+			ai_status_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		_:
+			ai_status_label.text = status
+			ai_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+
+
+func _start_status_refresh() -> void:
+	if ai_status_timer and not ai_status_timer.is_stopped():
+		return
+	if ai_status_timer:
+		ai_status_timer.start()
+		print("Started status refresh timer")
+
+
+func _stop_status_refresh() -> void:
+	if ai_status_timer and not ai_status_timer.is_stopped():
+		ai_status_timer.stop()
+		print("Stopped status refresh timer")
+
+
+func _on_status_timer_timeout() -> void:
+	if current_prompt_id.is_empty() or current_project_id < 0 or current_object_id < 0:
+		_stop_status_refresh()
+		return
+
+	_fetch_prompt_status()
+
+
+func _fetch_prompt_status() -> void:
+	if dynamodb_endpoint.is_empty():
+		return
+
+	var project_object_id = str(current_project_id) + "_" + str(current_object_id)
+
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"Key": {
+			"projectObjectID": {"S": project_object_id},
+			"promptID": {"S": current_prompt_id}
+		}
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.GetItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	# Use a separate HTTPRequest for status polling
+	var status_request = HTTPRequest.new()
+	add_child(status_request)
+	status_request.request_completed.connect(func(result, code, _hdrs, body):
+		_handle_status_response(result, code, body)
+		status_request.queue_free()
+	)
+	status_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
+
+
+func _handle_status_response(result: int, response_code: int, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
+		return
+
+	var response_text = body.get_string_from_utf8()
+	var json = JSON.parse_string(response_text)
+	if not json or not json.has("Item"):
+		return
+
+	var item = json["Item"]
+	var status = item.get("status", {}).get("S", "")
+	var response = item.get("response", {}).get("S", "")
+
+	# Update the display
+	_update_status_display(status)
+
+	# If completed or error, stop polling and update response
+	if status == "completed":
+		_stop_status_refresh()
+		if not response.is_empty() and ai_response_edit:
+			ai_response_edit.text = response
+		# Also refresh the prompts list to update dropdown
+		_fetch_saved_prompts()
+	elif status == "error":
+		_stop_status_refresh()
+		var error_msg = item.get("error", {}).get("S", "Unknown error")
+		if ai_response_edit:
+			ai_response_edit.text = "Error: " + error_msg
