@@ -1113,9 +1113,9 @@ func _create_ai_prompts_dialog() -> void:
 	main_vbox.add_child(separator)
 
 	# Prompt title (smaller text box)
-	var title_label := Label.new()
-	title_label.text = "Prompt Title:"
-	main_vbox.add_child(title_label)
+	var prompt_title_label := Label.new()
+	prompt_title_label.text = "Prompt Title:"
+	main_vbox.add_child(prompt_title_label)
 
 	ai_prompt_title_edit = LineEdit.new()
 	ai_prompt_title_edit.placeholder_text = "Enter a title for this prompt..."
@@ -1131,6 +1131,7 @@ func _create_ai_prompts_dialog() -> void:
 	ai_prompt_content_edit.placeholder_text = "Enter the AI prompt content..."
 	ai_prompt_content_edit.custom_minimum_size.y = 100
 	ai_prompt_content_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	ai_prompt_content_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	main_vbox.add_child(ai_prompt_content_edit)
 
 	# AI Prompt regenerate button
@@ -1144,7 +1145,6 @@ func _create_ai_prompts_dialog() -> void:
 
 	ai_regenerate_btn = Button.new()
 	ai_regenerate_btn.text = "Regenerate Prompt"
-	ai_regenerate_btn.disabled = true  # Temporarily disabled
 	ai_regenerate_btn.pressed.connect(_on_ai_regenerate_prompt_pressed)
 	prompt_hbox.add_child(ai_regenerate_btn)
 
@@ -1187,6 +1187,7 @@ func _create_ai_prompts_dialog() -> void:
 	ai_response_edit.placeholder_text = "AI generated response will appear here..."
 	ai_response_edit.custom_minimum_size.y = 120
 	ai_response_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	ai_response_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	main_vbox.add_child(ai_response_edit)
 
 	# Image grid section
@@ -1210,28 +1211,28 @@ func _create_ai_prompts_dialog() -> void:
 	_add_placeholder_images(4)
 
 	# Button row
-	var button_row := HBoxContainer.new()
-	button_row.alignment = BoxContainer.ALIGNMENT_END
-	button_row.add_theme_constant_override("separation", 10)
-	main_vbox.add_child(button_row)
+	var dialog_button_row := HBoxContainer.new()
+	dialog_button_row.alignment = BoxContainer.ALIGNMENT_END
+	dialog_button_row.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(dialog_button_row)
 
 	var generate_btn := Button.new()
 	generate_btn.text = "Regenerate Images"
 	generate_btn.custom_minimum_size = Vector2(140, 35)
 	generate_btn.pressed.connect(_on_ai_generate_pressed)
-	button_row.add_child(generate_btn)
+	dialog_button_row.add_child(generate_btn)
 
 	var save_btn := Button.new()
 	save_btn.text = "Save"
 	save_btn.custom_minimum_size = Vector2(80, 35)
 	save_btn.pressed.connect(_on_ai_save_pressed)
-	button_row.add_child(save_btn)
+	dialog_button_row.add_child(save_btn)
 
 	var close_btn := Button.new()
 	close_btn.text = "Close"
 	close_btn.custom_minimum_size = Vector2(80, 35)
 	close_btn.pressed.connect(func(): ai_prompts_dialog.hide())
-	button_row.add_child(close_btn)
+	dialog_button_row.add_child(close_btn)
 
 	ai_prompts_dialog.close_requested.connect(func():
 		ai_prompts_dialog.hide()
@@ -1305,32 +1306,41 @@ func _clear_ai_images() -> void:
 
 
 func _on_ai_regenerate_prompt_pressed() -> void:
-	var prompt = ai_prompt_content_edit.text
-	if prompt.is_empty():
-		ai_response_edit.text = "Error: Please enter a prompt first."
+	if current_prompt_id.is_empty():
+		ai_response_edit.text = "Error: No prompt selected to regenerate."
 		return
 
-	ai_response_edit.text = "Generating response..."
-	ai_regenerate_btn.disabled = true
+	if current_project_id < 0 or current_object_id < 0:
+		ai_response_edit.text = "Error: Project or object ID not set."
+		return
 
-	var selected_model = ai_model_dropdown.get_item_text(ai_model_dropdown.selected)
+	var project_object_id = str(current_project_id) + "_" + str(current_object_id)
 
-	var body = JSON.stringify({
-		"model": selected_model,
-		"prompt": prompt,
-		"stream": false
+	# Update status to pending in DynamoDB
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"Key": {
+			"projectObjectID": {"S": project_object_id},
+			"promptID": {"S": current_prompt_id}
+		},
+		"UpdateExpression": "SET #status = :pending",
+		"ExpressionAttributeNames": {"#status": "status"},
+		"ExpressionAttributeValues": {":pending": {"S": "pending"}}
 	})
 
 	var headers = PackedStringArray([
-		"Content-Type: application/json"
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.UpdateItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
 	])
 
-	claude_http_request.request(
-		"https://zycroft.duckdns.org/ollama/api/generate",
-		headers,
-		HTTPClient.METHOD_POST,
-		body
-	)
+	ai_response_edit.text = "Regenerating response..."
+	_update_status_display("pending")
+	_start_status_refresh()
+
+	ai_dynamodb_http_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
+	print("Regenerating prompt: ", current_prompt_id)
 
 
 func _on_claude_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
