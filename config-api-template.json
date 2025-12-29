@@ -14,5 +14,11 @@
 	},
 	"Grok": {
 		"api_key": "your-xai-api-key"
+	},
+	"Stability": {
+		"api_key": "your-stability-api-key"
+	},
+	"Midjourney": {
+		"api_key": "your-midjourney-api-key"
 	}
 }
