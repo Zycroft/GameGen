@@ -212,6 +212,9 @@ func _ready() -> void:
 
 	_load_anthropic_config()
 
+	# Automatically fetch projects and show selection dialog on startup
+	call_deferred("_fetch_projects_from_dynamodb")
+
 
 func _load_anthropic_config() -> void:
 	var config_file = FileAccess.open("res://config.json", FileAccess.READ)

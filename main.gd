@@ -51,6 +51,9 @@ func _ready() -> void:
 	# Create scene hierarchy panel
 	_create_scene_hierarchy()
 
+	# Reposition toolbars after everything is set up
+	call_deferred("_position_toolbars")
+
 
 func _create_viewport_frame() -> void:
 	"""Create a visible frame showing the project viewport boundaries"""
