@@ -133,6 +133,8 @@ func _load_anthropic_config() -> void:
 			dynamodb_region = config["dynamodb"].get("region", "us-west-2")
 		if config and config.has("tables"):
 			ai_prompts_table = config["tables"].get("aiPrompts", "AIPrompts")
+		if config and config.has("ai_services"):
+			ai_services = config["ai_services"]
 
 
 func _input(event: InputEvent) -> void:
@@ -1139,7 +1141,9 @@ var ai_prompt_content_edit: TextEdit
 var ai_regenerate_btn: Button
 var ai_response_edit: TextEdit
 var ai_images_grid: GridContainer
+var ai_service_dropdown: OptionButton
 var ai_model_dropdown: OptionButton
+var ai_services: Array = []
 var ai_prompt_images: Array = []
 var saved_prompts_dropdown: OptionButton
 var saved_prompts_list: Array = []
@@ -1295,21 +1299,36 @@ func _create_ai_prompts_dialog() -> void:
 	ai_regenerate_btn.pressed.connect(_on_ai_regenerate_prompt_pressed)
 	prompt_hbox.add_child(ai_regenerate_btn)
 
-	# Model selection dropdown
-	var model_hbox := HBoxContainer.new()
-	model_hbox.add_theme_constant_override("separation", 10)
-	main_vbox.add_child(model_hbox)
+	# Service and Model selection row
+	var service_model_hbox := HBoxContainer.new()
+	service_model_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(service_model_hbox)
+
+	var service_label := Label.new()
+	service_label.text = "Service:"
+	service_model_hbox.add_child(service_label)
+
+	ai_service_dropdown = OptionButton.new()
+	if ai_services.is_empty():
+		ai_service_dropdown.add_item("Zycroft")
+		ai_service_dropdown.add_item("OpenAI")
+		ai_service_dropdown.add_item("Claude")
+	else:
+		for service in ai_services:
+			ai_service_dropdown.add_item(service)
+	ai_service_dropdown.custom_minimum_size.x = 120
+	service_model_hbox.add_child(ai_service_dropdown)
 
 	var model_label := Label.new()
 	model_label.text = "Model:"
-	model_hbox.add_child(model_label)
+	service_model_hbox.add_child(model_label)
 
 	ai_model_dropdown = OptionButton.new()
 	ai_model_dropdown.add_item("llama3.2:3b")
 	ai_model_dropdown.add_item("qwen2.5:7b-instruct")
 	ai_model_dropdown.add_item("mistral:7b")
-	ai_model_dropdown.custom_minimum_size.x = 250
-	model_hbox.add_child(ai_model_dropdown)
+	ai_model_dropdown.custom_minimum_size.x = 200
+	service_model_hbox.add_child(ai_model_dropdown)
 
 	# Status indicator
 	var status_hbox := HBoxContainer.new()
