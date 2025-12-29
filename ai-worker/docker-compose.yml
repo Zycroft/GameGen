@@ -13,6 +13,8 @@ services:
       - POLL_INTERVAL=10
       - REQUEST_TIMEOUT=600
       - MIN_REQUEST_INTERVAL=2
+      - IMAGE_SERVER_PATH=/app/images
+      - IMAGE_PUBLIC_URL=https://zycroft.duckdns.org/GameGen-images
       # API keys can be set here or loaded from config-api.json
       # - OPENAI_API_KEY=
       # - CLAUDE_API_KEY=
@@ -22,6 +24,8 @@ services:
       # Mount config files
       - ../config.json:/app/config.json:ro
       - ../config-api.json:/app/config-api.json:ro
+      # Mount NGINX images directory for direct writes
+      - /var/www/GameGen-images/html:/app/images
     network_mode: host
     logging:
       driver: json-file

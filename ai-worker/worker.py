@@ -756,7 +756,7 @@ def get_existing_images(dynamodb, project_object_id: str, prompt_id: str) -> lis
 
 def upload_image_to_server(image_base64: str, project_object_id: str, prompt_id: str, image_index: int) -> dict:
     """
-    Save base64 image to local temp file, then SCP to NGINX server.
+    Save base64 image directly to the mounted NGINX images directory.
     Returns dict with 'url' on success or 'error' on failure.
     """
     try:
@@ -769,55 +769,34 @@ def upload_image_to_server(image_base64: str, project_object_id: str, prompt_id:
         filename = f"img_{timestamp}_{unique_id}_{image_index}.png"
 
         # Create folder structure: projectObjectID/promptID/
-        remote_folder = f"{project_object_id}/{prompt_id}"
-        remote_path = f"{IMAGE_SERVER_PATH}/{remote_folder}"
-        remote_file = f"{remote_path}/{filename}"
-        public_url = f"{IMAGE_PUBLIC_URL}/{remote_folder}/{filename}"
+        folder_path = f"{IMAGE_SERVER_PATH}/{project_object_id}/{prompt_id}"
+        file_path = f"{folder_path}/{filename}"
+        public_url = f"{IMAGE_PUBLIC_URL}/{project_object_id}/{prompt_id}/{filename}"
 
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-            tmp_file.write(image_data)
-            tmp_path = tmp_file.name
+        # Create directory if it doesn't exist
+        os.makedirs(folder_path, exist_ok=True)
 
-        try:
-            # Create remote directory via SSH
-            ssh_target = f"{IMAGE_SERVER_USER}@{IMAGE_SERVER_HOST}"
-            mkdir_cmd = ['ssh', ssh_target, f'mkdir -p {remote_path}']
-            result = subprocess.run(mkdir_cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                logger.error(f"Failed to create remote directory: {result.stderr}")
-                return {'error': f"Failed to create directory: {result.stderr}"}
+        # Write image file directly
+        with open(file_path, 'wb') as f:
+            f.write(image_data)
 
-            # SCP the file
-            scp_cmd = ['scp', tmp_path, f'{ssh_target}:{remote_file}']
-            result = subprocess.run(scp_cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                logger.error(f"SCP failed: {result.stderr}")
-                return {'error': f"SCP failed: {result.stderr}"}
-
-            logger.info(f"Uploaded image to {public_url}")
-            return {'url': public_url}
-
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        logger.info(f"Saved image to {file_path}, URL: {public_url}")
+        return {'url': public_url}
 
     except Exception as e:
-        logger.error(f"Error uploading image: {e}")
+        logger.error(f"Error saving image: {e}")
         return {'error': str(e)}
 
 
 def delete_existing_images_from_server(project_object_id: str, prompt_id: str):
-    """Delete all images in the prompt folder on the server (for replace mode)."""
+    """Delete all images in the prompt folder (for replace mode)."""
     try:
-        remote_folder = f"{IMAGE_SERVER_PATH}/{project_object_id}/{prompt_id}"
-        ssh_target = f"{IMAGE_SERVER_USER}@{IMAGE_SERVER_HOST}"
-
-        # Remove all files in the folder (but keep the folder)
-        rm_cmd = ['ssh', ssh_target, f'rm -f {remote_folder}/*.png 2>/dev/null || true']
-        subprocess.run(rm_cmd, capture_output=True, text=True, timeout=30)
-        logger.info(f"Deleted existing images from {remote_folder}")
+        folder_path = f"{IMAGE_SERVER_PATH}/{project_object_id}/{prompt_id}"
+        if os.path.exists(folder_path):
+            import glob
+            for png_file in glob.glob(f"{folder_path}/*.png"):
+                os.remove(png_file)
+            logger.info(f"Deleted existing images from {folder_path}")
     except Exception as e:
         logger.warning(f"Error deleting existing images: {e}")
 
