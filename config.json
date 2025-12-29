@@ -6,7 +6,22 @@
 	"tables": {
 		"projects": "Projects",
 		"sceneLayout": "SceneLayout",
-		"aiPrompts": "AIPrompts"
+		"aiPrompts": "AIPrompts",
+		"usageTracking": "UsageTracking"
+	},
+	"daily_limits": {
+		"default": 5,
+		"Zycroft": 100,
+		"OpenAI": 5,
+		"Claude": 5,
+		"Gemini": 5,
+		"Grok": 5
+	},
+	"daily_image_limits": {
+		"default": 3,
+		"OpenAI": 3,
+		"Stability": 3,
+		"Midjourney": 3
 	},
 	"ai_services": {
 		"Zycroft": [

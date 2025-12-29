@@ -132,10 +132,15 @@ func _load_config() -> void:
 			dynamodb_region = config["dynamodb"].get("region", "us-west-2")
 		if config and config.has("tables"):
 			ai_prompts_table = config["tables"].get("aiPrompts", "AIPrompts")
+			usage_tracking_table = config["tables"].get("usageTracking", "UsageTracking")
 		if config and config.has("ai_services"):
 			ai_services = config["ai_services"]
 		if config and config.has("image_services"):
 			image_services = config["image_services"]
+		if config and config.has("daily_limits"):
+			daily_limits = config["daily_limits"]
+		if config and config.has("daily_image_limits"):
+			daily_image_limits = config["daily_image_limits"]
 
 	# Load API keys
 	var api_config_file = FileAccess.open("res://config-api.json", FileAccess.READ)
@@ -1164,6 +1169,22 @@ var current_prompt_status: String = ""
 var image_status_label: Label
 var current_image_status: String = ""
 
+# Daily limits
+var daily_limits: Dictionary = {"default": 5}
+var daily_image_limits: Dictionary = {"default": 3}
+var usage_tracking_table: String = "UsageTracking"
+var prompt_limit_label: Label
+var image_limit_label: Label
+var ai_generate_btn: Button
+
+# Image generation settings
+var image_mode_replace: CheckBox
+var image_mode_append: CheckBox
+var image_count_spinbox: SpinBox
+
+# Image loading from URLs
+var pending_image_loads: Array = []  # Track pending image load requests
+
 # AI API
 var claude_http_request: HTTPRequest
 var ai_api_keys: Dictionary = {}
@@ -1197,6 +1218,9 @@ func _show_ai_prompts_dialog() -> void:
 
 	# Fetch saved prompts from DynamoDB for this specific object
 	_fetch_saved_prompts()
+
+	# Check usage limits for currently selected services
+	_check_usage_limits()
 
 	ai_prompts_dialog.popup_centered()
 
@@ -1243,7 +1267,7 @@ func _fetch_saved_prompts() -> void:
 func _create_ai_prompts_dialog() -> void:
 	ai_prompts_dialog = Window.new()
 	ai_prompts_dialog.title = "AI Prompts"
-	ai_prompts_dialog.size = Vector2i(700, 900)
+	ai_prompts_dialog.size = Vector2i(750, 1100)
 	ai_prompts_dialog.transient = true
 	ai_prompts_dialog.exclusive = false
 	ai_prompts_dialog.visible = false
@@ -1358,6 +1382,17 @@ func _create_ai_prompts_dialog() -> void:
 	ai_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 	status_hbox.add_child(ai_status_label)
 
+	# Spacer to push limit label to right
+	var limit_spacer := Control.new()
+	limit_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_hbox.add_child(limit_spacer)
+
+	# Prompt limit warning label
+	prompt_limit_label = Label.new()
+	prompt_limit_label.text = ""
+	prompt_limit_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.2))
+	status_hbox.add_child(prompt_limit_label)
+
 	# AI Response text box (larger than prompt content)
 	var response_label := Label.new()
 	response_label.text = "AI Response:"
@@ -1418,22 +1453,81 @@ func _create_ai_prompts_dialog() -> void:
 	image_model_dropdown.custom_minimum_size.x = 180
 	image_service_hbox.add_child(image_model_dropdown)
 
-	# Add spacer to push status to right
-	var image_spacer := Control.new()
-	image_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	image_service_hbox.add_child(image_spacer)
+	# Initialize models for first image service
+	_update_image_models_for_service(0)
+
+	# Image status row (like prompt status row)
+	var image_status_hbox := HBoxContainer.new()
+	image_status_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(image_status_hbox)
 
 	var image_status_title := Label.new()
 	image_status_title.text = "Status:"
-	image_service_hbox.add_child(image_status_title)
+	image_status_hbox.add_child(image_status_title)
 
 	image_status_label = Label.new()
 	image_status_label.text = "Not saved"
 	image_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-	image_service_hbox.add_child(image_status_label)
+	image_status_hbox.add_child(image_status_label)
 
-	# Initialize models for first image service
-	_update_image_models_for_service(0)
+	# Spacer to push limit label to right
+	var image_limit_spacer := Control.new()
+	image_limit_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	image_status_hbox.add_child(image_limit_spacer)
+
+	# Image limit warning label
+	image_limit_label = Label.new()
+	image_limit_label.text = ""
+	image_limit_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.2))
+	image_status_hbox.add_child(image_limit_label)
+
+	# Image generation options row
+	var image_options_hbox := HBoxContainer.new()
+	image_options_hbox.add_theme_constant_override("separation", 15)
+	main_vbox.add_child(image_options_hbox)
+
+	# Mode label
+	var mode_label := Label.new()
+	mode_label.text = "Mode:"
+	image_options_hbox.add_child(mode_label)
+
+	# Replace radio button
+	image_mode_replace = CheckBox.new()
+	image_mode_replace.text = "Replace"
+	image_mode_replace.button_pressed = true
+	image_mode_replace.toggled.connect(func(pressed: bool):
+		if pressed:
+			image_mode_append.button_pressed = false
+	)
+	image_options_hbox.add_child(image_mode_replace)
+
+	# Append radio button
+	image_mode_append = CheckBox.new()
+	image_mode_append.text = "Append"
+	image_mode_append.button_pressed = false
+	image_mode_append.toggled.connect(func(pressed: bool):
+		if pressed:
+			image_mode_replace.button_pressed = false
+	)
+	image_options_hbox.add_child(image_mode_append)
+
+	# Spacer
+	var options_spacer := Control.new()
+	options_spacer.custom_minimum_size.x = 20
+	image_options_hbox.add_child(options_spacer)
+
+	# Count label
+	var count_label := Label.new()
+	count_label.text = "Count:"
+	image_options_hbox.add_child(count_label)
+
+	# Count spinbox
+	image_count_spinbox = SpinBox.new()
+	image_count_spinbox.min_value = 1
+	image_count_spinbox.max_value = 10
+	image_count_spinbox.value = 1
+	image_count_spinbox.custom_minimum_size.x = 70
+	image_options_hbox.add_child(image_count_spinbox)
 
 	# Buttons
 	var button_row := HBoxContainer.new()
@@ -1441,11 +1535,11 @@ func _create_ai_prompts_dialog() -> void:
 	button_row.add_theme_constant_override("separation", 10)
 	main_vbox.add_child(button_row)
 
-	var generate_btn := Button.new()
-	generate_btn.text = "Regenerate Images"
-	generate_btn.custom_minimum_size = Vector2(140, 35)
-	generate_btn.pressed.connect(_on_ai_generate_pressed)
-	button_row.add_child(generate_btn)
+	ai_generate_btn = Button.new()
+	ai_generate_btn.text = "Regenerate Images"
+	ai_generate_btn.custom_minimum_size = Vector2(140, 35)
+	ai_generate_btn.pressed.connect(_on_ai_generate_pressed)
+	button_row.add_child(ai_generate_btn)
 
 	var save_btn := Button.new()
 	save_btn.text = "Save"
@@ -1520,6 +1614,9 @@ func _add_image_slot(texture: Texture2D) -> void:
 
 func _on_ai_service_changed(index: int) -> void:
 	_update_models_for_service(index)
+	# Check usage limits for new service
+	var selected_service = ai_service_dropdown.get_item_text(index)
+	_fetch_usage_count(selected_service, "prompt")
 
 
 func _update_models_for_service(service_index: int) -> void:
@@ -1544,6 +1641,9 @@ func _update_models_for_service(service_index: int) -> void:
 
 func _on_image_service_changed(index: int) -> void:
 	_update_image_models_for_service(index)
+	# Check usage limits for new image service
+	var selected_service = image_service_dropdown.get_item_text(index)
+	_fetch_usage_count(selected_service, "image")
 
 
 func _update_image_models_for_service(service_index: int) -> void:
@@ -1567,10 +1667,182 @@ func _update_image_models_for_service(service_index: int) -> void:
 
 
 func _clear_ai_images() -> void:
+	# Cancel pending image loads
+	for req_data in pending_image_loads:
+		if req_data.has("request") and is_instance_valid(req_data["request"]):
+			req_data["request"].queue_free()
+	pending_image_loads.clear()
+
 	for child in ai_images_grid.get_children():
 		child.queue_free()
 	ai_prompt_images.clear()
+	# Re-add placeholders
 	_add_placeholder_images(4)
+
+
+func _load_images_from_urls(images_data: Array) -> void:
+	"""Load images from URL data array"""
+	_clear_ai_images()
+
+	# Clear the placeholder images
+	for child in ai_images_grid.get_children():
+		child.queue_free()
+	ai_prompt_images.clear()
+
+	if images_data.is_empty():
+		_add_placeholder_images(4)
+		return
+
+	# Load each image
+	for img_data in images_data:
+		var url = img_data.get("url", "")
+		if url.is_empty():
+			continue
+		_load_image_from_url(url, img_data.get("index", 0))
+
+
+func _load_image_from_url(url: String, index: int) -> void:
+	"""Load a single image from URL"""
+	# Create a placeholder slot first
+	var slot_vbox := VBoxContainer.new()
+	slot_vbox.add_theme_constant_override("separation", 5)
+
+	# Loading placeholder
+	var placeholder := ColorRect.new()
+	placeholder.color = Color(0.25, 0.25, 0.35, 1)
+	placeholder.custom_minimum_size = Vector2(100, 100)
+	slot_vbox.add_child(placeholder)
+
+	# Loading label
+	var loading_label := Label.new()
+	loading_label.text = "Loading..."
+	loading_label.add_theme_font_size_override("font_size", 10)
+	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	slot_vbox.add_child(loading_label)
+
+	# Checkboxes container
+	var checks_vbox := VBoxContainer.new()
+	checks_vbox.add_theme_constant_override("separation", 2)
+	slot_vbox.add_child(checks_vbox)
+
+	var claude_check := CheckBox.new()
+	claude_check.text = "Claude"
+	claude_check.add_theme_font_size_override("font_size", 11)
+	checks_vbox.add_child(claude_check)
+
+	var user_check := CheckBox.new()
+	user_check.text = "User"
+	user_check.add_theme_font_size_override("font_size", 11)
+	checks_vbox.add_child(user_check)
+
+	ai_images_grid.add_child(slot_vbox)
+
+	# Track image data
+	var image_entry = {
+		"slot": slot_vbox,
+		"placeholder": placeholder,
+		"loading_label": loading_label,
+		"claude_check": claude_check,
+		"user_check": user_check,
+		"texture": null,
+		"url": url,
+		"index": index
+	}
+	ai_prompt_images.append(image_entry)
+
+	# Create HTTPRequest for this image
+	var img_http_request := HTTPRequest.new()
+	add_child(img_http_request)
+
+	var request_data = {
+		"request": img_http_request,
+		"slot": slot_vbox,
+		"placeholder": placeholder,
+		"loading_label": loading_label,
+		"image_entry": image_entry
+	}
+	pending_image_loads.append(request_data)
+
+	img_http_request.request_completed.connect(
+		func(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
+			_on_image_loaded(result, response_code, body, request_data)
+	)
+
+	var error = img_http_request.request(url)
+	if error != OK:
+		loading_label.text = "Error"
+		print("Failed to request image: ", url)
+
+
+func _on_image_loaded(result: int, response_code: int, body: PackedByteArray, request_data: Dictionary) -> void:
+	"""Handle loaded image data"""
+	# Clean up the request
+	if request_data.has("request") and is_instance_valid(request_data["request"]):
+		request_data["request"].queue_free()
+	pending_image_loads.erase(request_data)
+
+	var slot = request_data.get("slot")
+	var placeholder = request_data.get("placeholder")
+	var loading_label = request_data.get("loading_label")
+	var image_entry = request_data.get("image_entry")
+
+	if not is_instance_valid(slot):
+		return
+
+	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
+		if is_instance_valid(loading_label):
+			loading_label.text = "Failed"
+		print("Failed to load image: HTTP ", response_code)
+		return
+
+	# Create image from bytes
+	var image := Image.new()
+	var error = image.load_png_from_buffer(body)
+
+	if error != OK:
+		# Try JPEG format
+		error = image.load_jpg_from_buffer(body)
+
+	if error != OK:
+		# Try WebP format
+		error = image.load_webp_from_buffer(body)
+
+	if error != OK:
+		if is_instance_valid(loading_label):
+			loading_label.text = "Invalid"
+		print("Failed to parse image data")
+		return
+
+	# Create texture from image
+	var texture := ImageTexture.create_from_image(image)
+
+	# Replace placeholder with actual image
+	if is_instance_valid(placeholder):
+		var image_rect := TextureRect.new()
+		image_rect.custom_minimum_size = Vector2(100, 100)
+		image_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		image_rect.texture = texture
+
+		# Get the index of placeholder in slot
+		var idx = placeholder.get_index()
+		slot.remove_child(placeholder)
+		placeholder.queue_free()
+		slot.add_child(image_rect)
+		slot.move_child(image_rect, idx)
+
+		# Update image entry
+		if image_entry:
+			image_entry["texture"] = texture
+			image_entry["image_rect"] = image_rect
+			image_entry.erase("placeholder")
+
+	# Remove loading label
+	if is_instance_valid(loading_label):
+		loading_label.queue_free()
+		if image_entry:
+			image_entry.erase("loading_label")
+
+	print("Image loaded successfully")
 
 
 func _on_ai_regenerate_prompt_pressed() -> void:
@@ -1584,16 +1856,16 @@ func _on_ai_regenerate_prompt_pressed() -> void:
 
 	var project_object_id = str(current_project_id) + "_" + str(current_object_id)
 
-	# Update status to pending in DynamoDB
+	# Update status to "generate" in DynamoDB - this triggers AI worker processing
 	var request_body = JSON.stringify({
 		"TableName": ai_prompts_table,
 		"Key": {
 			"projectObjectID": {"S": project_object_id},
 			"promptID": {"S": current_prompt_id}
 		},
-		"UpdateExpression": "SET #status = :pending",
+		"UpdateExpression": "SET #status = :generate",
 		"ExpressionAttributeNames": {"#status": "status"},
-		"ExpressionAttributeValues": {":pending": {"S": "pending"}}
+		"ExpressionAttributeValues": {":generate": {"S": "generate"}}
 	})
 
 	var headers = PackedStringArray([
@@ -1604,7 +1876,7 @@ func _on_ai_regenerate_prompt_pressed() -> void:
 	])
 
 	ai_response_edit.text = "Regenerating response..."
-	_update_status_display("pending")
+	_update_status_display("generate")
 	_start_status_refresh()
 
 	dynamodb_http_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
@@ -1651,7 +1923,52 @@ func _on_claude_request_completed(result: int, response_code: int, _headers: Pac
 
 
 func _on_ai_generate_pressed() -> void:
-	print("Generate AI images - not yet implemented")
+	if current_prompt_id.is_empty():
+		print("Error: No prompt selected for image generation.")
+		return
+
+	if current_project_id < 0 or current_object_id < 0:
+		print("Error: Project or object ID not set.")
+		return
+
+	var project_object_id = str(current_project_id) + "_" + str(current_object_id)
+
+	# Get image generation settings
+	var image_mode = "replace" if image_mode_replace.button_pressed else "append"
+	var image_count = int(image_count_spinbox.value)
+
+	# Update imageStatus to "generate" with mode and count in DynamoDB
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"Key": {
+			"projectObjectID": {"S": project_object_id},
+			"promptID": {"S": current_prompt_id}
+		},
+		"UpdateExpression": "SET #imageStatus = :generate, #imageMode = :mode, #imageCount = :count",
+		"ExpressionAttributeNames": {
+			"#imageStatus": "imageStatus",
+			"#imageMode": "imageMode",
+			"#imageCount": "imageCount"
+		},
+		"ExpressionAttributeValues": {
+			":generate": {"S": "generate"},
+			":mode": {"S": image_mode},
+			":count": {"N": str(image_count)}
+		}
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.UpdateItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	_update_image_status_display("generate")
+	_start_status_refresh()
+
+	dynamodb_http_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
+	print("Regenerating %d images (mode: %s) for prompt: %s" % [image_count, image_mode, current_prompt_id])
 
 
 func _on_ai_save_pressed() -> void:
@@ -1676,6 +1993,7 @@ func _on_ai_save_pressed() -> void:
 	var project_object_id = str(current_project_id) + "_" + str(current_object_id)
 
 	# Build DynamoDB PutItem request
+	# Use "idle" status on save - only "generate" triggers AI processing
 	var item = {
 		"projectObjectID": {"S": project_object_id},
 		"promptID": {"S": current_prompt_id},
@@ -1685,9 +2003,9 @@ func _on_ai_save_pressed() -> void:
 		"model": {"S": selected_model},
 		"imageService": {"S": selected_image_service},
 		"imageModel": {"S": selected_image_model},
-		"imageStatus": {"S": "pending"},
+		"imageStatus": {"S": "idle"},
 		"response": {"S": ai_response_edit.text},
-		"status": {"S": "pending"},
+		"status": {"S": "idle"},
 		"createdAt": {"N": str(Time.get_unix_time_from_system())},
 		"containerName": {"S": container_name if not container_name.is_empty() else container_type},
 		"projectID": {"N": str(current_project_id)},
@@ -1709,10 +2027,9 @@ func _on_ai_save_pressed() -> void:
 	var url = dynamodb_endpoint
 	print("Saving AI prompt to DynamoDB: ", project_object_id, " / ", current_prompt_id)
 
-	# Update status to pending and start refresh
-	_update_status_display("pending")
-	_update_image_status_display("pending")
-	_start_status_refresh()
+	# Update status to idle (not triggering generation)
+	_update_status_display("idle")
+	_update_image_status_display("idle")
 
 	dynamodb_http_request.request(url, headers, HTTPClient.METHOD_POST, request_body)
 
@@ -1842,12 +2159,26 @@ func _on_saved_prompt_selected(index: int) -> void:
 		# Update status and start refresh if needed
 		var status = prompt_data.get("status", "")
 		_update_status_display(status)
-		if status == "pending" or status == "processing":
-			_start_status_refresh()
 
 		# Update image status
 		var image_status = prompt_data.get("imageStatus", "")
 		_update_image_status_display(image_status)
+
+		# Load generated images if any
+		var generated_images_json = prompt_data.get("generatedImages", "")
+		if not generated_images_json.is_empty():
+			var json = JSON.new()
+			var parse_result = json.parse(generated_images_json)
+			if parse_result == OK and json.data is Array:
+				_load_images_from_urls(json.data)
+			else:
+				_clear_ai_images()
+		else:
+			_clear_ai_images()
+
+		# Start refresh if either prompt or image is being processed
+		if status == "generate" or status == "processing" or image_status == "generate" or image_status == "processing":
+			_start_status_refresh()
 
 		print("Loaded prompt: ", current_prompt_id)
 
@@ -1861,8 +2192,11 @@ func _update_status_display(status: String) -> void:
 		"new", "":
 			ai_status_label.text = "Not saved"
 			ai_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-		"pending":
-			ai_status_label.text = "⏳ Pending..."
+		"idle":
+			ai_status_label.text = "Saved"
+			ai_status_label.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5))
+		"generate":
+			ai_status_label.text = "⏳ Queued..."
 			ai_status_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
 		"processing":
 			ai_status_label.text = "⚙️ Processing..."
@@ -1887,8 +2221,11 @@ func _update_image_status_display(status: String) -> void:
 		"new", "":
 			image_status_label.text = "Not saved"
 			image_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-		"pending":
-			image_status_label.text = "⏳ Pending..."
+		"idle":
+			image_status_label.text = "Saved"
+			image_status_label.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5))
+		"generate":
+			image_status_label.text = "⏳ Queued..."
 			image_status_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
 		"processing":
 			image_status_label.text = "⚙️ Processing..."
@@ -1969,19 +2306,141 @@ func _handle_status_response(result: int, response_code: int, body: PackedByteAr
 	var item = json["Item"]
 	var status = item.get("status", {}).get("S", "")
 	var response = item.get("response", {}).get("S", "")
+	var image_status = item.get("imageStatus", {}).get("S", "")
 
-	# Update the display
+	# Update the displays
 	_update_status_display(status)
+	_update_image_status_display(image_status)
 
-	# If completed or error, stop polling and update response
+	# Handle prompt status
 	if status == "completed":
-		_stop_status_refresh()
 		if not response.is_empty() and ai_response_edit:
 			ai_response_edit.text = response
-		# Also refresh the prompts list to update dropdown
-		_fetch_saved_prompts()
 	elif status == "error":
-		_stop_status_refresh()
 		var error_msg = item.get("error", {}).get("S", "Unknown error")
 		if ai_response_edit:
 			ai_response_edit.text = "Error: " + error_msg
+
+	# Handle image status - load images when completed
+	if image_status == "completed":
+		var generated_images_json = item.get("generatedImages", {}).get("S", "")
+		if not generated_images_json.is_empty():
+			var json_parser = JSON.new()
+			var parse_result = json_parser.parse(generated_images_json)
+			if parse_result == OK and json_parser.data is Array:
+				_load_images_from_urls(json_parser.data)
+
+	# Stop polling only if both prompt and image processing are done
+	var prompt_done = status in ["idle", "completed", "error", ""]
+	var image_done = image_status in ["idle", "completed", "error", ""]
+	if prompt_done and image_done:
+		_stop_status_refresh()
+		# Refresh the prompts list to update dropdown
+		_fetch_saved_prompts()
+
+
+# Daily limit checking functions
+
+func _get_today_date_string() -> String:
+	var datetime = Time.get_datetime_dict_from_system(true)  # UTC
+	return "%04d-%02d-%02d" % [datetime["year"], datetime["month"], datetime["day"]]
+
+
+func _check_usage_limits() -> void:
+	# Check prompt limit for selected service
+	var selected_service = ai_service_dropdown.get_item_text(ai_service_dropdown.selected)
+	_fetch_usage_count(selected_service, "prompt")
+
+	# Check image limit for selected image service
+	var selected_image_service = image_service_dropdown.get_item_text(image_service_dropdown.selected)
+	_fetch_usage_count(selected_image_service, "image")
+
+
+func _fetch_usage_count(service: String, usage_type: String) -> void:
+	if dynamodb_endpoint.is_empty():
+		return
+
+	var date_service = "%s_%s_%s" % [_get_today_date_string(), service, usage_type]
+
+	var request_body = JSON.stringify({
+		"TableName": usage_tracking_table,
+		"Key": {
+			"dateService": {"S": date_service}
+		}
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.GetItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	# Create a one-time HTTPRequest for usage check
+	var usage_request = HTTPRequest.new()
+	add_child(usage_request)
+	usage_request.request_completed.connect(
+		func(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
+			_handle_usage_response(result, response_code, body, service, usage_type)
+			usage_request.queue_free()
+	)
+	usage_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
+
+
+func _handle_usage_response(result: int, response_code: int, body: PackedByteArray, service: String, usage_type: String) -> void:
+	var current_count = 0
+
+	if result == HTTPRequest.RESULT_SUCCESS and response_code == 200:
+		var response_text = body.get_string_from_utf8()
+		var json = JSON.parse_string(response_text)
+		if json and json.has("Item"):
+			current_count = int(json["Item"].get("count", {}).get("N", "0"))
+
+	# Get the limit for this service
+	var limit: int
+	if usage_type == "image":
+		limit = daily_image_limits.get(service, daily_image_limits.get("default", 3))
+	else:
+		limit = daily_limits.get(service, daily_limits.get("default", 5))
+
+	# Update UI based on usage type
+	if usage_type == "prompt":
+		_update_prompt_limit_display(current_count, limit, service)
+	else:
+		_update_image_limit_display(current_count, limit, service)
+
+
+func _update_prompt_limit_display(current_count: int, limit: int, service: String) -> void:
+	if not prompt_limit_label:
+		return
+
+	if current_count >= limit:
+		prompt_limit_label.text = "Limit Reached (%d/%d)" % [current_count, limit]
+		prompt_limit_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		if ai_regenerate_btn:
+			ai_regenerate_btn.disabled = true
+			ai_regenerate_btn.tooltip_text = "Daily limit reached for %s" % service
+	else:
+		prompt_limit_label.text = "Usage: %d/%d" % [current_count, limit]
+		prompt_limit_label.add_theme_color_override("font_color", Color(0.6, 0.8, 0.6))
+		if ai_regenerate_btn:
+			ai_regenerate_btn.disabled = false
+			ai_regenerate_btn.tooltip_text = ""
+
+
+func _update_image_limit_display(current_count: int, limit: int, service: String) -> void:
+	if not image_limit_label:
+		return
+
+	if current_count >= limit:
+		image_limit_label.text = "Limit Reached (%d/%d)" % [current_count, limit]
+		image_limit_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		if ai_generate_btn:
+			ai_generate_btn.disabled = true
+			ai_generate_btn.tooltip_text = "Daily limit reached for %s" % service
+	else:
+		image_limit_label.text = "Usage: %d/%d" % [current_count, limit]
+		image_limit_label.add_theme_color_override("font_color", Color(0.6, 0.8, 0.6))
+		if ai_generate_btn:
+			ai_generate_btn.disabled = false
+			ai_generate_btn.tooltip_text = ""

@@ -12,6 +12,16 @@ services:
       - AI_PROMPTS_TABLE=AIPrompts
       - POLL_INTERVAL=10
       - REQUEST_TIMEOUT=600
+      - MIN_REQUEST_INTERVAL=2
+      # API keys can be set here or loaded from config-api.json
+      # - OPENAI_API_KEY=
+      # - CLAUDE_API_KEY=
+      # - GEMINI_API_KEY=
+      # - GROK_API_KEY=
+    volumes:
+      # Mount config files
+      - ../config.json:/app/config.json:ro
+      - ../config-api.json:/app/config-api.json:ro
     network_mode: host
     logging:
       driver: json-file
