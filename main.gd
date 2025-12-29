@@ -24,6 +24,7 @@ var selected_node_id: int = -1
 var project_viewport_size := Vector2(1920, 1080)  # Default project viewport
 var viewport_margin_percent := 0.10  # 10% margin
 var viewport_frame: Line2D
+var viewport_label: Label
 var viewport_offset: Vector2  # Offset to center content with margin
 
 
@@ -44,41 +45,67 @@ func _ready() -> void:
 	# Create viewport frame
 	_create_viewport_frame()
 
+	# Connect to window resize signal
+	get_tree().root.size_changed.connect(_on_window_resized)
+
 	# Create scene hierarchy panel
 	_create_scene_hierarchy()
 
 
 func _create_viewport_frame() -> void:
 	"""Create a visible frame showing the project viewport boundaries"""
-	# Calculate the margin offset (10% of viewport size)
-	var margin = project_viewport_size * viewport_margin_percent
-	viewport_offset = margin
-
 	# Create the frame using Line2D
 	viewport_frame = Line2D.new()
 	viewport_frame.width = 3.0
 	viewport_frame.default_color = Color(0.3, 0.6, 0.9, 0.8)  # Light blue
 	viewport_frame.closed = true
-
-	# Draw rectangle at the offset position
-	var frame_pos = viewport_offset
-	var frame_size = project_viewport_size
-	viewport_frame.add_point(frame_pos)
-	viewport_frame.add_point(Vector2(frame_pos.x + frame_size.x, frame_pos.y))
-	viewport_frame.add_point(Vector2(frame_pos.x + frame_size.x, frame_pos.y + frame_size.y))
-	viewport_frame.add_point(Vector2(frame_pos.x, frame_pos.y + frame_size.y))
-	viewport_frame.add_point(frame_pos)  # Close the loop
-
-	# Add corner markers for visibility
 	add_child(viewport_frame)
 
 	# Add a label showing viewport size
-	var label = Label.new()
-	label.text = "Project Viewport: %dx%d" % [int(project_viewport_size.x), int(project_viewport_size.y)]
-	label.position = viewport_offset + Vector2(5, -25)
-	label.add_theme_color_override("font_color", Color(0.3, 0.6, 0.9, 0.8))
-	label.add_theme_font_size_override("font_size", 14)
-	add_child(label)
+	viewport_label = Label.new()
+	viewport_label.text = "Project Viewport: %dx%d" % [int(project_viewport_size.x), int(project_viewport_size.y)]
+	viewport_label.add_theme_color_override("font_color", Color(0.3, 0.6, 0.9, 0.8))
+	viewport_label.add_theme_font_size_override("font_size", 14)
+	add_child(viewport_label)
+
+	# Set initial positions based on window size
+	_on_window_resized()
+
+
+func _on_window_resized() -> void:
+	"""Recenter the viewport frame and objects when window size changes"""
+	var window_size = get_viewport().get_visible_rect().size
+
+	# Store old offset to calculate delta
+	var old_offset = viewport_offset
+
+	# Calculate new offset to center the project viewport in the window
+	viewport_offset = (window_size - project_viewport_size) / 2
+	viewport_offset = viewport_offset.max(Vector2(50, 50))  # Minimum margin
+
+	# Calculate how much to move objects
+	var offset_delta = viewport_offset - old_offset
+
+	# Update frame points
+	if viewport_frame:
+		viewport_frame.clear_points()
+		var frame_pos = viewport_offset
+		var frame_size = project_viewport_size
+		viewport_frame.add_point(frame_pos)
+		viewport_frame.add_point(Vector2(frame_pos.x + frame_size.x, frame_pos.y))
+		viewport_frame.add_point(Vector2(frame_pos.x + frame_size.x, frame_pos.y + frame_size.y))
+		viewport_frame.add_point(Vector2(frame_pos.x, frame_pos.y + frame_size.y))
+		viewport_frame.add_point(frame_pos)
+
+	# Update label position
+	if viewport_label:
+		viewport_label.position = viewport_offset + Vector2(5, -25)
+
+	# Move all containers by the offset delta
+	if offset_delta != Vector2.ZERO:
+		for container in all_containers:
+			if is_instance_valid(container):
+				container.global_position += offset_delta
 
 
 func _create_scene_hierarchy() -> void:
