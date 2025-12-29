@@ -19,7 +19,8 @@ var title_bar_height := 28.0
 
 # Node categories and types
 const NODE_CATEGORIES := {
-	"2D Nodes": ["Node2D", "Sprite2D", "AnimatedSprite2D"],
+	"Scenes": ["Scene"],
+	"2D Nodes": ["Node2D", "Sprite2D", "AnimatedSprite2D", "CanvasLayer", "Control"],
 	"Containers": ["VBoxContainer", "HBoxContainer", "GridContainer",
 				   "FlowContainer", "MarginContainer", "PanelContainer",
 				   "CenterContainer", "AspectRatioContainer", "HSplitContainer",
@@ -32,10 +33,14 @@ const NODE_CATEGORIES := {
 }
 
 const NODE_COLORS := {
+	# Scenes
+	"Scene": Color(0.9, 0.7, 0.2),
 	# 2D Nodes
 	"Node2D": Color(0.4, 0.7, 0.4),
 	"Sprite2D": Color(0.5, 0.8, 0.5),
 	"AnimatedSprite2D": Color(0.4, 0.9, 0.6),
+	"CanvasLayer": Color(0.7, 0.5, 0.9),
+	"Control": Color(0.3, 0.5, 0.7),
 	# Containers
 	"VBoxContainer": Color(0.8, 0.3, 0.3),
 	"HBoxContainer": Color(0.3, 0.6, 0.8),
@@ -69,6 +74,7 @@ const NODE_COLORS := {
 }
 
 const CATEGORY_COLORS := {
+	"Scenes": Color(0.9, 0.7, 0.2),
 	"2D Nodes": Color(0.4, 0.7, 0.4),
 	"Containers": Color(0.7, 0.4, 0.4),
 	"UI Widgets": Color(0.5, 0.5, 0.8),
@@ -131,7 +137,6 @@ func _on_tree_item_activated() -> void:
 	var item = controls_tree.get_selected()
 	if item and item.has_meta("node_type"):
 		var node_type = item.get_meta("node_type")
-		print("Node spawn requested: ", node_type)
 		node_spawn_requested.emit(node_type)
 
 

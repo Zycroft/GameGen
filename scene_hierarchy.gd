@@ -31,7 +31,8 @@ var _selecting_programmatically := false  # Prevents pruning when selecting from
 
 # Node type definitions
 const NODE_CATEGORIES := {
-	"2D": ["Node2D", "Sprite2D", "AnimatedSprite2D"],
+	"Scene": ["Scene"],
+	"2D": ["Node2D", "Sprite2D", "AnimatedSprite2D", "CanvasLayer"],
 	"Control": ["Control", "VBoxContainer", "HBoxContainer", "GridContainer",
 				"FlowContainer", "MarginContainer", "PanelContainer",
 				"CenterContainer", "AspectRatioContainer", "HSplitContainer",
@@ -44,10 +45,13 @@ const NODE_CATEGORIES := {
 }
 
 const NODE_COLORS := {
+	# Scene
+	"Scene": Color(0.9, 0.7, 0.2),
 	# 2D Nodes
 	"Node2D": Color(0.4, 0.7, 0.4),
 	"Sprite2D": Color(0.5, 0.8, 0.5),
 	"AnimatedSprite2D": Color(0.4, 0.9, 0.6),
+	"CanvasLayer": Color(0.7, 0.5, 0.9),
 	# Control Nodes (containers)
 	"Control": Color(0.3, 0.5, 0.7),
 	"VBoxContainer": Color(0.8, 0.3, 0.3),
@@ -84,9 +88,11 @@ const NODE_COLORS := {
 }
 
 const NODE_ICONS := {
+	"Scene": "SCN",
 	"Node2D": "2D",
 	"Sprite2D": "SPR",
 	"AnimatedSprite2D": "ANI",
+	"CanvasLayer": "CVL",
 	"Control": "CTL",
 	"VBoxContainer": "VB",
 	"HBoxContainer": "HB",
@@ -124,6 +130,7 @@ const NODE_ICONS := {
 @onready var button_row: HBoxContainer = $ButtonRow
 @onready var project_button: Button = $ButtonRow/ProjectButton
 @onready var save_button: Button = $ButtonRow/SaveButton
+@onready var new_button: Button = $ButtonRow/NewButton
 @onready var tree: Tree = $Content/Tree
 @onready var add_node_popup: PopupMenu
 
@@ -133,12 +140,20 @@ var context_node_id: int = -1
 
 # Project management
 var http_request: HTTPRequest
+var create_http_request: HTTPRequest
 var projects_list: Array = []
 var selected_project_index: int = -1
 var current_project_name: String = ""
 var projects_dialog: Window
 var project_item_list: ItemList
 var save_confirm_dialog: ConfirmationDialog
+
+# New project dialog
+var new_project_dialog: Window
+var new_project_name_edit: LineEdit
+var new_project_path_edit: LineEdit
+var new_project_path_label: Label
+var file_dialog: FileDialog
 
 
 func _ready() -> void:
@@ -149,6 +164,7 @@ func _ready() -> void:
 	# Connect buttons
 	project_button.pressed.connect(_on_project_button_pressed)
 	save_button.pressed.connect(_on_save_button_pressed)
+	new_button.pressed.connect(_on_new_button_pressed)
 
 	# Setup tree
 	tree.hide_root = false
@@ -168,11 +184,33 @@ func _ready() -> void:
 	add_child(http_request)
 	http_request.request_completed.connect(_on_request_completed)
 
+	# Create HTTPRequest for creating new projects
+	create_http_request = HTTPRequest.new()
+	add_child(create_http_request)
+	create_http_request.request_completed.connect(_on_create_project_completed)
+
 	# Create project selection dialog
 	_create_projects_dialog()
 
 	# Create save confirmation dialog
 	_create_save_confirm_dialog()
+
+	# Create new project dialog
+	_create_new_project_dialog()
+
+	# Create HTTPRequest for Claude API calls
+	claude_http_request = HTTPRequest.new()
+	add_child(claude_http_request)
+	claude_http_request.request_completed.connect(_on_claude_request_completed)
+	_load_anthropic_config()
+
+
+func _load_anthropic_config() -> void:
+	var config_file = FileAccess.open("res://config.json", FileAccess.READ)
+	if config_file:
+		var config = JSON.parse_string(config_file.get_as_text())
+		if config and config.has("anthropic"):
+			anthropic_api_key = config["anthropic"].get("api_key", "")
 
 
 func _create_context_menu() -> void:
@@ -183,6 +221,8 @@ func _create_context_menu() -> void:
 	context_menu.add_separator()
 	context_menu.add_item("Rename", 2)
 	context_menu.add_item("Duplicate", 3)
+	context_menu.add_separator()
+	context_menu.add_item("AI Prompts...", 5)
 	context_menu.add_separator()
 	context_menu.add_item("Delete", 4)
 	context_menu.id_pressed.connect(_on_context_menu_action)
@@ -231,6 +271,8 @@ func _on_context_menu_action(id: int) -> void:
 			print("Duplicate not yet implemented")
 		4:  # Delete
 			node_deleted.emit(context_node_id)
+		5:  # AI Prompts
+			_show_ai_prompts_dialog()
 
 
 func _start_rename(node_id: int) -> void:
@@ -669,3 +711,547 @@ func set_project_name(project_name: String) -> void:
 		title_label.text = "Proj: " + project_name
 	else:
 		title_label.text = "Project: " + project_name
+
+
+# ============================================
+# New Project Dialog Functions
+# ============================================
+
+func _create_new_project_dialog() -> void:
+	new_project_dialog = Window.new()
+	new_project_dialog.title = "New Project"
+	new_project_dialog.size = Vector2i(450, 200)
+	new_project_dialog.transient = true
+	new_project_dialog.exclusive = true
+	new_project_dialog.visible = false
+	add_child(new_project_dialog)
+
+	var main_vbox := VBoxContainer.new()
+	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_vbox.add_theme_constant_override("separation", 12)
+	main_vbox.offset_left = 15
+	main_vbox.offset_top = 15
+	main_vbox.offset_right = -15
+	main_vbox.offset_bottom = -15
+	new_project_dialog.add_child(main_vbox)
+
+	# Project name row
+	var name_hbox := HBoxContainer.new()
+	name_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(name_hbox)
+
+	var name_label := Label.new()
+	name_label.text = "Project Name:"
+	name_label.custom_minimum_size.x = 100
+	name_hbox.add_child(name_label)
+
+	new_project_name_edit = LineEdit.new()
+	new_project_name_edit.placeholder_text = "My Game"
+	new_project_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_hbox.add_child(new_project_name_edit)
+
+	# Godot path row
+	var path_hbox := HBoxContainer.new()
+	path_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(path_hbox)
+
+	var path_label := Label.new()
+	path_label.text = "Godot Project:"
+	path_label.custom_minimum_size.x = 100
+	path_hbox.add_child(path_label)
+
+	new_project_path_edit = LineEdit.new()
+	new_project_path_edit.placeholder_text = "/path/to/godot/project"
+	new_project_path_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	new_project_path_edit.editable = false
+	path_hbox.add_child(new_project_path_edit)
+
+	var browse_button := Button.new()
+	browse_button.text = "Browse..."
+	browse_button.custom_minimum_size.x = 80
+	browse_button.pressed.connect(_on_browse_button_pressed)
+	path_hbox.add_child(browse_button)
+
+	# Info label
+	var info_label := Label.new()
+	info_label.text = "Select a Godot project folder (contains project.godot)"
+	info_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	info_label.add_theme_font_size_override("font_size", 12)
+	main_vbox.add_child(info_label)
+
+	# Spacer
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(spacer)
+
+	# Button row
+	var button_container := HBoxContainer.new()
+	button_container.alignment = BoxContainer.ALIGNMENT_END
+	button_container.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(button_container)
+
+	var create_button := Button.new()
+	create_button.text = "Create"
+	create_button.custom_minimum_size = Vector2(80, 30)
+	create_button.pressed.connect(_on_new_project_create_pressed)
+	button_container.add_child(create_button)
+
+	var cancel_button := Button.new()
+	cancel_button.text = "Cancel"
+	cancel_button.custom_minimum_size = Vector2(80, 30)
+	cancel_button.pressed.connect(_on_new_project_cancel_pressed)
+	button_container.add_child(cancel_button)
+
+	new_project_dialog.close_requested.connect(_on_new_project_cancel_pressed)
+
+	# Create file dialog for directory selection
+	file_dialog = FileDialog.new()
+	file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+	file_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	file_dialog.title = "Select Godot Project Directory"
+	file_dialog.size = Vector2i(700, 500)
+	file_dialog.dir_selected.connect(_on_directory_selected)
+	add_child(file_dialog)
+
+
+func _on_new_button_pressed() -> void:
+	# Clear previous values
+	new_project_name_edit.text = ""
+	new_project_path_edit.text = ""
+	new_project_dialog.popup_centered()
+
+
+func _on_browse_button_pressed() -> void:
+	file_dialog.popup_centered()
+
+
+func _on_directory_selected(dir: String) -> void:
+	new_project_path_edit.text = dir
+	# Try to auto-fill project name if empty
+	if new_project_name_edit.text.is_empty():
+		var dir_name = dir.get_file()
+		if dir_name.is_empty():
+			dir_name = dir.get_base_dir().get_file()
+		new_project_name_edit.text = dir_name
+
+
+func _on_new_project_create_pressed() -> void:
+	var project_name = new_project_name_edit.text.strip_edges()
+	var project_path = new_project_path_edit.text.strip_edges()
+
+	if project_name.is_empty():
+		_show_error("Please enter a project name.")
+		return
+
+	# Create project in DynamoDB
+	_create_project_in_dynamodb(project_name, project_path)
+
+
+func _on_new_project_cancel_pressed() -> void:
+	new_project_dialog.hide()
+
+
+func _show_error(message: String) -> void:
+	var error_dialog := AcceptDialog.new()
+	error_dialog.title = "Error"
+	error_dialog.dialog_text = message
+	error_dialog.confirmed.connect(error_dialog.queue_free)
+	error_dialog.canceled.connect(error_dialog.queue_free)
+	add_child(error_dialog)
+	error_dialog.popup_centered()
+
+
+func _create_project_in_dynamodb(project_name: String, project_path: String) -> void:
+	# First, scan to get the highest ID
+	var endpoint := "http://zycroft.duckdns.org:8001"
+
+	var headers := [
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.Scan",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	]
+	var body := JSON.stringify({
+		"TableName": "Projects",
+		"ProjectionExpression": "ID"
+	})
+
+	# Store the pending project data
+	set_meta("pending_project_name", project_name)
+	set_meta("pending_project_path", project_path)
+
+	print("Fetching project IDs to determine next ID...")
+	var error = create_http_request.request(endpoint, headers, HTTPClient.METHOD_POST, body)
+	if error != OK:
+		print("Failed to send scan request: ", error)
+
+
+func _on_create_project_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	var json = JSON.parse_string(body.get_string_from_utf8())
+
+	# Check if this is a scan response (getting IDs) or a put response (creating project)
+	if json and json.has("Items"):
+		# This is the scan response - find max ID
+		var max_id := 0
+		for item in json["Items"]:
+			if item.has("ID") and item["ID"].has("N"):
+				var id = int(item["ID"]["N"])
+				if id > max_id:
+					max_id = id
+
+		var new_id = max_id + 1
+		var project_name = get_meta("pending_project_name", "")
+		var project_path = get_meta("pending_project_path", "")
+
+		# Now create the project with PutItem
+		_put_project_item(new_id, project_name, project_path)
+
+	elif response_code == 200:
+		# This is the PutItem response - project created successfully
+		print("Project created successfully!")
+		new_project_dialog.hide()
+
+		# Update local state and UI
+		var new_project = {
+			"ID": get_meta("new_project_id", 0),
+			"Name": get_meta("pending_project_name", ""),
+			"GodotProjectPath": get_meta("pending_project_path", "")
+		}
+
+		current_project_name = new_project["Name"]
+		title_label.text = "Project: " + current_project_name
+		project_selected.emit(new_project)
+
+		# Clean up metadata
+		remove_meta("pending_project_name")
+		remove_meta("pending_project_path")
+		remove_meta("new_project_id")
+	else:
+		var error_body = body.get_string_from_utf8()
+		print("Failed to create project: ", response_code, " - ", error_body)
+		_show_error("Failed to create project: " + error_body)
+
+
+func _put_project_item(project_id: int, project_name: String, project_path: String) -> void:
+	var endpoint := "http://zycroft.duckdns.org:8001"
+
+	var headers := [
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.PutItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	]
+
+	var item := {
+		"ID": {"N": str(project_id)},
+		"Name": {"S": project_name},
+		"ShortDescription": {"S": ""},
+		"Overview": {"S": ""},
+		"GodotProjectPath": {"S": project_path}
+	}
+
+	var body := JSON.stringify({
+		"TableName": "Projects",
+		"Item": item
+	})
+
+	# Store the new ID for use after successful creation
+	set_meta("new_project_id", project_id)
+
+	print("Creating project with ID: ", project_id)
+	var error = create_http_request.request(endpoint, headers, HTTPClient.METHOD_POST, body)
+	if error != OK:
+		print("Failed to send PutItem request: ", error)
+
+
+# ============================================
+# AI Prompts Dialog
+# ============================================
+
+var ai_prompts_dialog: Window
+var ai_prompt_title_edit: LineEdit
+var ai_prompt_content_edit: TextEdit
+var ai_regenerate_btn: Button
+var ai_response_edit: TextEdit
+var ai_images_grid: GridContainer
+var ai_model_dropdown: OptionButton
+var ai_prompt_images: Array = []  # Array of {texture, claude_approved, user_approved}
+
+# Claude API
+var claude_http_request: HTTPRequest
+var anthropic_api_key: String = ""
+
+
+func _show_ai_prompts_dialog() -> void:
+	if not ai_prompts_dialog:
+		_create_ai_prompts_dialog()
+
+	# Clear previous content
+	ai_prompt_title_edit.text = ""
+	ai_prompt_content_edit.text = ""
+	_clear_ai_images()
+
+	ai_prompts_dialog.popup_centered()
+
+
+func _create_ai_prompts_dialog() -> void:
+	ai_prompts_dialog = Window.new()
+	ai_prompts_dialog.title = "AI Prompts"
+	ai_prompts_dialog.size = Vector2i(650, 700)
+	ai_prompts_dialog.transient = true
+	ai_prompts_dialog.exclusive = false
+	ai_prompts_dialog.visible = false
+	add_child(ai_prompts_dialog)
+
+	var main_vbox := VBoxContainer.new()
+	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_vbox.add_theme_constant_override("separation", 10)
+	main_vbox.offset_left = 15
+	main_vbox.offset_top = 15
+	main_vbox.offset_right = -15
+	main_vbox.offset_bottom = -15
+	ai_prompts_dialog.add_child(main_vbox)
+
+	# Prompt title (smaller text box)
+	var title_label := Label.new()
+	title_label.text = "Prompt Title:"
+	main_vbox.add_child(title_label)
+
+	ai_prompt_title_edit = LineEdit.new()
+	ai_prompt_title_edit.placeholder_text = "Enter a title for this prompt..."
+	ai_prompt_title_edit.custom_minimum_size.y = 30
+	main_vbox.add_child(ai_prompt_title_edit)
+
+	# Prompt content (larger text box)
+	var content_label := Label.new()
+	content_label.text = "Prompt Content:"
+	main_vbox.add_child(content_label)
+
+	ai_prompt_content_edit = TextEdit.new()
+	ai_prompt_content_edit.placeholder_text = "Enter the AI prompt content..."
+	ai_prompt_content_edit.custom_minimum_size.y = 100
+	ai_prompt_content_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(ai_prompt_content_edit)
+
+	# AI Prompt regenerate button
+	var prompt_hbox := HBoxContainer.new()
+	prompt_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(prompt_hbox)
+
+	var prompt_label := Label.new()
+	prompt_label.text = "AI Prompt"
+	prompt_hbox.add_child(prompt_label)
+
+	ai_regenerate_btn = Button.new()
+	ai_regenerate_btn.text = "Regenerate Prompt"
+	ai_regenerate_btn.pressed.connect(_on_ai_regenerate_prompt_pressed)
+	prompt_hbox.add_child(ai_regenerate_btn)
+
+	# Model selection dropdown
+	var model_hbox := HBoxContainer.new()
+	model_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(model_hbox)
+
+	var model_label := Label.new()
+	model_label.text = "Model:"
+	model_hbox.add_child(model_label)
+
+	ai_model_dropdown = OptionButton.new()
+	ai_model_dropdown.add_item("claude-sonnet-4-20250514")
+	ai_model_dropdown.add_item("claude-opus-4-20250514")
+	ai_model_dropdown.add_item("claude-haiku-3-5-20241022")
+	ai_model_dropdown.custom_minimum_size.x = 250
+	model_hbox.add_child(ai_model_dropdown)
+
+	# AI Response text box (larger than prompt content)
+	var response_label := Label.new()
+	response_label.text = "AI Response:"
+	main_vbox.add_child(response_label)
+
+	ai_response_edit = TextEdit.new()
+	ai_response_edit.placeholder_text = "AI generated response will appear here..."
+	ai_response_edit.custom_minimum_size.y = 120
+	ai_response_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(ai_response_edit)
+
+	# Image grid section
+	var images_label := Label.new()
+	images_label.text = "Generated Images:"
+	main_vbox.add_child(images_label)
+
+	var images_scroll := ScrollContainer.new()
+	images_scroll.custom_minimum_size.y = 180
+	images_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(images_scroll)
+
+	ai_images_grid = GridContainer.new()
+	ai_images_grid.columns = 4
+	ai_images_grid.add_theme_constant_override("h_separation", 10)
+	ai_images_grid.add_theme_constant_override("v_separation", 10)
+	ai_images_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	images_scroll.add_child(ai_images_grid)
+
+	# Add placeholder images for demo
+	_add_placeholder_images(4)
+
+	# Button row
+	var button_row := HBoxContainer.new()
+	button_row.alignment = BoxContainer.ALIGNMENT_END
+	button_row.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(button_row)
+
+	var generate_btn := Button.new()
+	generate_btn.text = "Regenerate Images"
+	generate_btn.custom_minimum_size = Vector2(140, 35)
+	generate_btn.pressed.connect(_on_ai_generate_pressed)
+	button_row.add_child(generate_btn)
+
+	var save_btn := Button.new()
+	save_btn.text = "Save"
+	save_btn.custom_minimum_size = Vector2(80, 35)
+	save_btn.pressed.connect(_on_ai_save_pressed)
+	button_row.add_child(save_btn)
+
+	var close_btn := Button.new()
+	close_btn.text = "Close"
+	close_btn.custom_minimum_size = Vector2(80, 35)
+	close_btn.pressed.connect(func(): ai_prompts_dialog.hide())
+	button_row.add_child(close_btn)
+
+	ai_prompts_dialog.close_requested.connect(func(): ai_prompts_dialog.hide())
+
+
+func _add_placeholder_images(count: int) -> void:
+	for i in range(count):
+		_add_image_slot(null)
+
+
+func _add_image_slot(texture: Texture2D) -> void:
+	var slot_vbox := VBoxContainer.new()
+	slot_vbox.add_theme_constant_override("separation", 5)
+
+	# Image display
+	var image_rect := TextureRect.new()
+	image_rect.custom_minimum_size = Vector2(100, 100)
+	image_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	image_rect.texture = texture
+
+	# Placeholder background if no texture
+	if not texture:
+		var placeholder := ColorRect.new()
+		placeholder.color = Color(0.3, 0.3, 0.3, 1)
+		placeholder.custom_minimum_size = Vector2(100, 100)
+		slot_vbox.add_child(placeholder)
+	else:
+		slot_vbox.add_child(image_rect)
+
+	# Checkboxes container
+	var checks_vbox := VBoxContainer.new()
+	checks_vbox.add_theme_constant_override("separation", 2)
+	slot_vbox.add_child(checks_vbox)
+
+	var claude_check := CheckBox.new()
+	claude_check.text = "Claude"
+	claude_check.add_theme_font_size_override("font_size", 11)
+	checks_vbox.add_child(claude_check)
+
+	var user_check := CheckBox.new()
+	user_check.text = "User"
+	user_check.add_theme_font_size_override("font_size", 11)
+	checks_vbox.add_child(user_check)
+
+	ai_images_grid.add_child(slot_vbox)
+
+	# Track the image data
+	ai_prompt_images.append({
+		"slot": slot_vbox,
+		"image_rect": image_rect,
+		"claude_check": claude_check,
+		"user_check": user_check,
+		"texture": texture
+	})
+
+
+func _clear_ai_images() -> void:
+	for child in ai_images_grid.get_children():
+		child.queue_free()
+	ai_prompt_images.clear()
+	# Re-add placeholders
+	_add_placeholder_images(4)
+
+
+func _on_ai_regenerate_prompt_pressed() -> void:
+	var prompt = ai_prompt_content_edit.text
+	if prompt.is_empty():
+		ai_response_edit.text = "Error: Please enter a prompt first."
+		return
+
+	if anthropic_api_key.is_empty():
+		ai_response_edit.text = "Error: API key not configured in config.json"
+		return
+
+	ai_response_edit.text = "Generating response..."
+	ai_regenerate_btn.disabled = true
+
+	var selected_model = ai_model_dropdown.get_item_text(ai_model_dropdown.selected)
+
+	var body = JSON.stringify({
+		"model": selected_model,
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": prompt}]
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/json",
+		"x-api-key: " + anthropic_api_key,
+		"anthropic-version: 2023-06-01"
+	])
+
+	claude_http_request.request(
+		"https://api.anthropic.com/v1/messages",
+		headers,
+		HTTPClient.METHOD_POST,
+		body
+	)
+
+
+func _on_claude_request_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	ai_regenerate_btn.disabled = false
+
+	var response_text = body.get_string_from_utf8()
+	var json = JSON.parse_string(response_text)
+
+	if response_code == 200 and json:
+		if json.has("content") and json["content"].size() > 0:
+			ai_response_edit.text = json["content"][0]["text"]
+		else:
+			ai_response_edit.text = "Error: Unexpected response format"
+	else:
+		var error_msg = "Error: " + str(response_code)
+		if json and json.has("error"):
+			error_msg += " - " + json["error"].get("message", "Unknown error")
+		ai_response_edit.text = error_msg
+
+
+func _on_ai_generate_pressed() -> void:
+	print("Generate AI images - not yet implemented")
+	# TODO: Connect to AI image generation
+
+
+func _on_ai_save_pressed() -> void:
+	var prompt_data = {
+		"title": ai_prompt_title_edit.text,
+		"content": ai_prompt_content_edit.text,
+		"images": []
+	}
+
+	for img_data in ai_prompt_images:
+		if img_data["texture"]:
+			prompt_data["images"].append({
+				"claude_approved": img_data["claude_check"].button_pressed,
+				"user_approved": img_data["user_check"].button_pressed
+			})
+
+	print("Saving AI prompt: ", prompt_data)
+	# TODO: Save to DynamoDB or local storage
+	ai_prompts_dialog.hide()

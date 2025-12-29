@@ -426,8 +426,10 @@ func _on_properties_dialog_closed() -> void:
 
 
 func _on_hierarchy_add_node_requested(parent_id: int, node_type: String) -> void:
-	# Determine if this is a container, widget, or 2D node
-	if node_type in SceneHierarchyScript.NODE_CATEGORIES["Control"]:
+	# Determine if this is a container, widget, 2D node, or scene
+	if node_type in SceneHierarchyScript.NODE_CATEGORIES["Scene"]:
+		_add_scene_node(parent_id)
+	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["Control"]:
 		_add_container_node(parent_id, node_type)
 	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["UI"]:
 		_add_widget_node(parent_id, node_type)
@@ -514,8 +516,8 @@ func _add_2d_node(parent_id: int, node_type: String) -> void:
 		}
 	}
 
-	# Create actual 2D node
-	var node: Node2D
+	# Create actual node (some 2D types are not Node2D subclasses)
+	var node: Node
 	match node_type:
 		"Node2D":
 			node = Node2D.new()
@@ -523,16 +525,28 @@ func _add_2d_node(parent_id: int, node_type: String) -> void:
 			node = Sprite2D.new()
 		"AnimatedSprite2D":
 			node = AnimatedSprite2D.new()
+		"CanvasLayer":
+			node = CanvasLayer.new()
+		"Control":
+			node = Control.new()
 		_:
 			node = Node2D.new()
 
 	node.name = node_type + "_" + str(node_id)
-	node.position = Vector2(node_data["properties"]["positionX"], node_data["properties"]["positionY"])
+	if node is Node2D:
+		node.position = Vector2(node_data["properties"]["positionX"], node_data["properties"]["positionY"])
 	node.set_meta("node_id", node_id)
 
 	# Add to scene tree
 	add_child(node)
 	all_nodes[node_id] = node
+
+	# Create visual container for viewport display
+	var container = _create_2d_node_container(node_type, node_data["properties"], node_type)
+	container.set_meta("container_id", node_id)
+	container.global_position = viewport_offset + Vector2(node_data["properties"]["positionX"], node_data["properties"]["positionY"])
+	# Size is set by _create_2d_node_container based on placeholder size
+	all_nodes[node_id] = container  # Replace node reference with container for viewport interaction
 
 	# Add to data tree
 	var parent_data = _find_node_data(parent_id)
@@ -555,7 +569,10 @@ func _add_animation_node(parent_id: int, node_type: String) -> void:
 		"type": node_type,
 		"name": node_type,
 		"children": [],
-		"properties": {}
+		"properties": {
+			"positionX": 400.0 + spawn_offset,
+			"positionY": 300.0 + spawn_offset
+		}
 	}
 
 	# Create AnimationPlayer
@@ -571,7 +588,12 @@ func _add_animation_node(parent_id: int, node_type: String) -> void:
 	else:
 		add_child(anim_player)
 
-	all_nodes[node_id] = anim_player
+	# Create visual container for viewport display
+	var container = _create_2d_node_container(node_type, node_data["properties"], node_type)
+	container.set_meta("container_id", node_id)
+	container.global_position = viewport_offset + Vector2(node_data["properties"]["positionX"], node_data["properties"]["positionY"])
+	# Size is set by _create_2d_node_container based on placeholder size
+	all_nodes[node_id] = container
 
 	# Add to data tree
 	var parent_data = _find_node_data(parent_id)
@@ -580,7 +602,182 @@ func _add_animation_node(parent_id: int, node_type: String) -> void:
 			parent_data["children"] = []
 		parent_data["children"].append(node_data)
 
+	spawn_offset += 30
+	if spawn_offset > 150:
+		spawn_offset = 0
+
 	_refresh_hierarchy()
+
+
+func _add_audio_node(parent_id: int, node_type: String) -> void:
+	var node_id = _get_next_node_id()
+	var node_data = {
+		"id": node_id,
+		"type": node_type,
+		"name": node_type,
+		"children": [],
+		"properties": {
+			"positionX": 400.0 + spawn_offset,
+			"positionY": 300.0 + spawn_offset
+		}
+	}
+
+	# Create AudioStreamPlayer
+	var audio_player = AudioStreamPlayer.new()
+	audio_player.name = "AudioStreamPlayer_" + str(node_id)
+	audio_player.set_meta("node_id", node_id)
+
+	# Add to parent node
+	if all_nodes.has(parent_id):
+		var parent = all_nodes[parent_id]
+		if parent is Node:
+			parent.add_child(audio_player)
+	else:
+		add_child(audio_player)
+
+	# Create visual container for viewport display
+	var container = _create_2d_node_container(node_type, node_data["properties"], node_type)
+	container.set_meta("container_id", node_id)
+	container.global_position = viewport_offset + Vector2(node_data["properties"]["positionX"], node_data["properties"]["positionY"])
+	# Size is set by _create_2d_node_container based on placeholder size
+	all_nodes[node_id] = container
+
+	# Add to data tree
+	var parent_data = _find_node_data(parent_id)
+	if not parent_data.is_empty():
+		if not parent_data.has("children"):
+			parent_data["children"] = []
+		parent_data["children"].append(node_data)
+
+	spawn_offset += 30
+	if spawn_offset > 150:
+		spawn_offset = 0
+
+	_refresh_hierarchy()
+
+
+# Scene node dialog
+var scene_name_dialog: Window
+var scene_name_edit: LineEdit
+var pending_scene_parent_id: int = -1
+
+func _add_scene_node(parent_id: int) -> void:
+	pending_scene_parent_id = parent_id
+	_show_scene_name_dialog()
+
+
+func _show_scene_name_dialog() -> void:
+	if not scene_name_dialog:
+		_create_scene_name_dialog()
+
+	scene_name_edit.text = ""
+	scene_name_dialog.popup_centered()
+	scene_name_edit.grab_focus()
+
+
+func _create_scene_name_dialog() -> void:
+	scene_name_dialog = Window.new()
+	scene_name_dialog.title = "New Scene"
+	scene_name_dialog.size = Vector2i(350, 130)
+	scene_name_dialog.transient = true
+	scene_name_dialog.exclusive = true
+	scene_name_dialog.wrap_controls = true
+	scene_name_dialog.visible = false
+	add_child(scene_name_dialog)
+
+	var main_vbox := VBoxContainer.new()
+	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_vbox.add_theme_constant_override("separation", 12)
+	main_vbox.offset_left = 15
+	main_vbox.offset_top = 15
+	main_vbox.offset_right = -15
+	main_vbox.offset_bottom = -15
+	scene_name_dialog.add_child(main_vbox)
+
+	# Scene name row
+	var name_hbox := HBoxContainer.new()
+	name_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(name_hbox)
+
+	var name_label := Label.new()
+	name_label.text = "Scene Name:"
+	name_label.custom_minimum_size.x = 90
+	name_hbox.add_child(name_label)
+
+	scene_name_edit = LineEdit.new()
+	scene_name_edit.placeholder_text = "MainMenu"
+	scene_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scene_name_edit.text_submitted.connect(_on_scene_name_submitted)
+	name_hbox.add_child(scene_name_edit)
+
+	# Info label
+	var info_label := Label.new()
+	info_label.text = "Will be saved as: Scenes/<name>.tscn"
+	info_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	info_label.add_theme_font_size_override("font_size", 12)
+	main_vbox.add_child(info_label)
+
+	# Button row
+	var button_container := HBoxContainer.new()
+	button_container.alignment = BoxContainer.ALIGNMENT_END
+	button_container.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(button_container)
+
+	var create_button := Button.new()
+	create_button.text = "Create"
+	create_button.custom_minimum_size = Vector2(80, 28)
+	create_button.pressed.connect(_on_scene_create_pressed)
+	button_container.add_child(create_button)
+
+	var cancel_button := Button.new()
+	cancel_button.text = "Cancel"
+	cancel_button.custom_minimum_size = Vector2(80, 28)
+	cancel_button.pressed.connect(_on_scene_cancel_pressed)
+	button_container.add_child(cancel_button)
+
+	scene_name_dialog.close_requested.connect(_on_scene_cancel_pressed)
+
+
+func _on_scene_name_submitted(_text: String) -> void:
+	_on_scene_create_pressed()
+
+
+func _on_scene_create_pressed() -> void:
+	var scene_name = scene_name_edit.text.strip_edges()
+	if scene_name.is_empty():
+		return
+
+	# Create the scene node
+	var node_id = _get_next_node_id()
+	var scene_path = "Scenes/" + scene_name + ".tscn"
+
+	var node_data = {
+		"id": node_id,
+		"type": "Scene",
+		"name": scene_name,
+		"_scenePath": scene_path,
+		"children": [],
+		"widgets": [],
+		"properties": {}
+	}
+
+	# Add to data tree
+	var parent_data = _find_node_data(pending_scene_parent_id)
+	if not parent_data.is_empty():
+		if not parent_data.has("children"):
+			parent_data["children"] = []
+		parent_data["children"].append(node_data)
+
+	# Store in all_nodes as dictionary (scene is a virtual container)
+	all_nodes[node_id] = node_data
+
+	scene_name_dialog.hide()
+	_refresh_hierarchy()
+
+
+func _on_scene_cancel_pressed() -> void:
+	scene_name_dialog.hide()
+	pending_scene_parent_id = -1
 
 
 func _on_node_spawn_requested(node_type: String) -> void:
@@ -588,7 +785,9 @@ func _on_node_spawn_requested(node_type: String) -> void:
 	var parent_id = selected_node_id if selected_node_id > 0 else scene_root.get("id", 1)
 
 	# Determine node category and call appropriate function
-	if node_type in SceneHierarchyScript.NODE_CATEGORIES["Control"]:
+	if node_type in SceneHierarchyScript.NODE_CATEGORIES["Scene"]:
+		_add_scene_node(parent_id)
+	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["Control"]:
 		_add_container_node(parent_id, node_type)
 	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["UI"]:
 		_add_widget_node(parent_id, node_type)
@@ -596,8 +795,8 @@ func _on_node_spawn_requested(node_type: String) -> void:
 		_add_2d_node(parent_id, node_type)
 	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["Animation"]:
 		_add_animation_node(parent_id, node_type)
-
-	print("Spawned node: ", node_type, " under parent ID: ", parent_id)
+	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["Audio"]:
+		_add_audio_node(parent_id, node_type)
 
 
 func _create_container(container_type: String) -> DraggableContainer:
@@ -651,8 +850,8 @@ func _create_standalone_widget(widget_type: String, props: Dictionary, node_name
 	var size_y = props.get("sizeY", props.get("minSizeY", 64))
 	container.add_widget_from_data(widget_type, props)
 
-	# Set container size based on widget
-	container.size = Vector2(size_x + 20, size_y + 40)  # Add padding for title bar
+	# Set container size based on widget (padding: 30 for borders, 50 for title bar + bottom)
+	container.size = Vector2(size_x + 30, size_y + 50)
 
 	return container
 
@@ -702,8 +901,8 @@ func _create_2d_node_container(node_type: String, props: Dictionary, node_name: 
 	placeholder.gui_input.connect(_on_placeholder_gui_input.bind(container))
 	container.inner_container.add_child(placeholder)
 
-	# Set container size
-	container.size = Vector2(size_x + 20, size_y + 40)
+	# Set container size (padding: 30 for borders, 50 for title bar + bottom)
+	container.size = Vector2(size_x + 30, size_y + 50)
 
 	return container
 
@@ -837,6 +1036,11 @@ func _on_project_selected(project_data: Dictionary) -> void:
 	current_project_name = project_data.get("Name", "Unknown")
 	print("Main received project: ", current_project_name, " (ID: ", current_project_id, ")")
 
+	# Update root node name to project name
+	if not scene_root.is_empty():
+		scene_root["name"] = current_project_name
+		_refresh_hierarchy()
+
 
 # ==================== SAVE ====================
 
@@ -871,13 +1075,24 @@ func _serialize_scene_tree(node_data: Dictionary) -> Dictionary:
 		"properties": node_data.get("properties", {}).duplicate()
 	}
 
+	# Preserve _scenePath for Scene nodes
+	if node_data.has("_scenePath"):
+		data["_scenePath"] = node_data["_scenePath"]
+
 	# Update properties from actual node if it exists
 	var node_id = node_data.get("id", -1)
 	if all_nodes.has(node_id):
 		var node = all_nodes[node_id]
 		if node is DraggableContainer:
-			data["properties"]["positionX"] = node.global_position.x
-			data["properties"]["positionY"] = node.global_position.y
+			# Check if this is a child container
+			if node.parent_container != null:
+				# Child container - save local position
+				data["properties"]["positionX"] = node.position.x
+				data["properties"]["positionY"] = node.position.y
+			else:
+				# Top-level container - save position relative to viewport
+				data["properties"]["positionX"] = node.global_position.x - viewport_offset.x
+				data["properties"]["positionY"] = node.global_position.y - viewport_offset.y
 			data["properties"]["sizeX"] = node.size.x
 			data["properties"]["sizeY"] = node.size.y
 			data["name"] = node.container_name if not node.container_name.is_empty() else node.container_type
@@ -913,12 +1128,24 @@ func _serialize_scene_tree(node_data: Dictionary) -> Dictionary:
 func _serialize_container(container: DraggableContainer, parent_id: int) -> Dictionary:
 	var container_id = container.get_meta("container_id", 0)
 
+	# Determine position based on whether this is a child container
+	var pos_x: float
+	var pos_y: float
+	if parent_id == 0:
+		# Top-level container: save position relative to viewport
+		pos_x = container.global_position.x - viewport_offset.x
+		pos_y = container.global_position.y - viewport_offset.y
+	else:
+		# Child container: save local position
+		pos_x = container.position.x
+		pos_y = container.position.y
+
 	var data := {
 		"id": container_id,
 		"type": container.container_type,
 		"name": container.container_name,
-		"positionX": container.global_position.x,
-		"positionY": container.global_position.y,
+		"positionX": pos_x,
+		"positionY": pos_y,
 		"sizeX": container.size.x,
 		"sizeY": container.size.y,
 		"parentID": parent_id,
@@ -1079,9 +1306,55 @@ func _save_to_dynamodb(layout_data: Dictionary) -> void:
 func _on_save_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code == 200:
 		print("Layout saved successfully!")
+		_write_sync_trigger()
+		_run_godot_export()
 	else:
 		var error_body = body.get_string_from_utf8()
 		print("Failed to save layout: ", response_code, " - ", error_body)
+
+
+func _write_sync_trigger() -> void:
+	"""Write sync trigger file for background export agent"""
+	var godot_project_path = ProjectSettings.globalize_path("res://")
+	var trigger_path = godot_project_path + ".gamegen-sync"
+
+	var file = FileAccess.open(trigger_path, FileAccess.WRITE)
+	if file:
+		var trigger_data = {
+			"projectID": current_project_id,
+			"projectName": current_project_name,
+			"savedAt": Time.get_datetime_string_from_system()
+		}
+		file.store_string(JSON.stringify(trigger_data, "\t"))
+		file.close()
+		print("Sync trigger written to: ", trigger_path)
+	else:
+		print("Failed to write sync trigger file")
+
+
+func _run_godot_export() -> void:
+	"""Run the Godot scene exporter script to sync scenes to the target project"""
+	if current_project_id < 0:
+		return
+
+	var project_path = ProjectSettings.globalize_path("res://")
+	var script_path = project_path + ".claude/skills/godot-scene-exporter/scripts/export_to_tscn.py"
+
+	# Check if script exists
+	if not FileAccess.file_exists(script_path):
+		print("Export script not found: ", script_path)
+		return
+
+	print("Running Godot export...")
+
+	# Run Python script in background using create_process (non-blocking)
+	var args = [script_path, "--project-id", str(current_project_id)]
+	var pid = OS.create_process("python3", args)
+
+	if pid > 0:
+		print("Export started (PID: ", pid, ")")
+	else:
+		print("Failed to start export process")
 
 
 # ==================== LOAD ====================
@@ -1182,6 +1455,10 @@ func _deserialize_scene_tree(scene_data: Dictionary) -> void:
 	# Set scene root data
 	scene_root = scene_data.duplicate(true)
 
+	# Update root name to current project name
+	if not current_project_name.is_empty():
+		scene_root["name"] = current_project_name
+
 	# Track max ID to avoid conflicts
 	_update_max_node_id(scene_root)
 
@@ -1233,11 +1510,40 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		return
 
 	# Create node based on type
-	if node_type in SceneHierarchyScript.NODE_CATEGORIES["Control"]:
-		# Create container
-		var container = _create_container(node_type)
+	if node_type == "Scene" or node_type in SceneHierarchyScript.NODE_CATEGORIES.get("Scene", []):
+		# Scene is a virtual container - just store the data and process children
+		all_nodes[node_id] = node_data
+		# Process children recursively
+		for child in node_data.get("children", []):
+			_create_nodes_from_tree(child, null)
+		return
+
+	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["Control"]:
+		# Create container - check if parent is a DraggableContainer
+		var container: DraggableContainer
+		var parent_is_container = _parent_node is DraggableContainer
+
+		if parent_is_container:
+			# Child container - instantiate and add to parent's content panel
+			container = DraggableContainerScene.instantiate()
+			_parent_node.get_content_panel().add_child(container)
+			container.set_meta("container_id", node_id)
+			container.set_container_type(node_type)
+			container.parent_container = _parent_node
+			container.unlink_button.visible = true
+			# Connect signals
+			container.closed.connect(_on_container_closed.bind(container))
+			container.drag_ended.connect(_on_container_drag_ended)
+			container.unlinked.connect(_on_container_unlinked)
+			container.selected.connect(_on_container_selected_in_viewport)
+			# Use local position for child containers
+			container.position = Vector2(props.get("positionX", 10), props.get("positionY", 30))
+		else:
+			# Top-level container
+			container = _create_container(node_type)
+			container.global_position = viewport_offset + Vector2(props.get("positionX", 100), props.get("positionY", 100))
+
 		container.set_meta("node_id", node_id)
-		container.global_position = viewport_offset + Vector2(props.get("positionX", 100), props.get("positionY", 100))
 		container.size = Vector2(props.get("sizeX", 200), props.get("sizeY", 150))
 
 		var node_name = node_data.get("name", "")
@@ -1270,26 +1576,45 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["2D"]:
 		# Create 2D node in draggable container
 		var node_name = node_data.get("name", node_type)
-		var container = _create_2d_node_container(node_type, props, node_name)
-		container.set_meta("node_id", node_id)
+		var container: DraggableContainer
+		var parent_is_container = _parent_node is DraggableContainer
 		var pos_x = props.get("positionX", 100)
 		var pos_y = props.get("positionY", 100)
-		container.global_position = viewport_offset + Vector2(pos_x, pos_y)
+
+		if parent_is_container:
+			# Child of another container
+			container = DraggableContainerScene.instantiate()
+			_parent_node.get_content_panel().add_child(container)
+			container.set_meta("container_id", node_id)
+			container.set_container_type(node_type)
+			container.parent_container = _parent_node
+			container.unlink_button.visible = true
+			container.closed.connect(_on_container_closed.bind(container))
+			container.drag_ended.connect(_on_container_drag_ended)
+			container.unlinked.connect(_on_container_unlinked)
+			container.selected.connect(_on_container_selected_in_viewport)
+			container.position = Vector2(pos_x, pos_y)
+			if node_name and node_name != node_type:
+				container.set_container_name(node_name)
+		else:
+			# Top-level 2D node
+			container = _create_2d_node_container(node_type, props, node_name)
+			container.global_position = viewport_offset + Vector2(pos_x, pos_y)
+
+		container.set_meta("node_id", node_id)
+		if props.has("sizeX") and props.has("sizeY"):
+			container.size = Vector2(props.get("sizeX", 200), props.get("sizeY", 150))
 		all_nodes[node_id] = container
 
-		# Create widgets for 2D nodes (positioned relative to parent)
+		# Create widgets for 2D nodes
 		for widget_data in node_data.get("widgets", []):
 			var widget_type = widget_data.get("type", "Label")
 			var widget_props = widget_data.get("properties", {})
-			var widget_name_inner = widget_data.get("name", widget_type)
-			var widget_container = _create_standalone_widget(widget_type, widget_props, widget_name_inner)
-			if widget_container:
+			var widget = container.add_widget_from_data(widget_type, widget_props)
+			if widget:
 				var widget_id = widget_data.get("id", _get_next_node_id())
-				widget_container.set_meta("node_id", widget_id)
-				var wpos_x = widget_props.get("positionX", 0)
-				var wpos_y = widget_props.get("positionY", 0)
-				widget_container.global_position = viewport_offset + Vector2(pos_x + wpos_x, pos_y + wpos_y)
-				all_nodes[widget_id] = widget_container
+				widget.set_meta("node_id", widget_id)
+				all_nodes[widget_id] = widget
 
 	elif node_type == "AnimationPlayer":
 		var anim_player = AnimationPlayer.new()
@@ -1306,16 +1631,24 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		all_nodes[node_id] = audio_player
 
 	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["UI"]:
-		# Standalone widget selected - create in draggable container
 		var widget_name = node_data.get("name", node_type)
-		var container = _create_standalone_widget(node_type, props, widget_name)
-		if container:
-			container.set_meta("node_id", node_id)
-			# Position the container in viewport
-			var pos_x = props.get("positionX", 100)
-			var pos_y = props.get("positionY", 100)
-			container.global_position = viewport_offset + Vector2(pos_x, pos_y)
-			all_nodes[node_id] = container
+		var parent_is_container = _parent_node is DraggableContainer
+		var pos_x = props.get("positionX", 100)
+		var pos_y = props.get("positionY", 100)
+
+		if parent_is_container:
+			# Add widget directly to parent container
+			var widget = _parent_node.add_widget_from_data(node_type, props)
+			if widget:
+				widget.set_meta("node_id", node_id)
+				all_nodes[node_id] = widget
+		else:
+			# Standalone widget - create in draggable container
+			var container = _create_standalone_widget(node_type, props, widget_name)
+			if container:
+				container.set_meta("node_id", node_id)
+				container.global_position = viewport_offset + Vector2(pos_x, pos_y)
+				all_nodes[node_id] = container
 
 	# Process children recursively
 	for child in node_data.get("children", []):
@@ -1355,8 +1688,13 @@ func _create_container_from_data(data: Dictionary, parent: DraggableContainer) -
 		container.unlinked.connect(_on_container_unlinked)
 		container.selected.connect(_on_container_selected_in_viewport)
 
-	# Set position and size (with viewport offset)
-	container.global_position = viewport_offset + Vector2(data.get("positionX", 0), data.get("positionY", 0))
+	# Set position and size
+	if parent == null:
+		# Top-level container uses global position with viewport offset
+		container.global_position = viewport_offset + Vector2(data.get("positionX", 0), data.get("positionY", 0))
+	else:
+		# Child container uses local position relative to parent
+		container.position = Vector2(data.get("positionX", 0), data.get("positionY", 0))
 	container.size = Vector2(data.get("sizeX", 200), data.get("sizeY", 150))
 
 	# Set container name if present

@@ -94,6 +94,8 @@ func _ready() -> void:
 	widget_context_menu.add_item("Delete Widget", 1)
 	widget_context_menu.add_separator()
 	widget_context_menu.add_item("Add Widget Here...", 2)
+	widget_context_menu.add_separator()
+	widget_context_menu.add_item("AI Prompts...", 3)
 	widget_context_menu.id_pressed.connect(_on_widget_context_action)
 	add_child(widget_context_menu)
 
@@ -102,6 +104,20 @@ func _ready() -> void:
 
 	# Connect content panel right-click
 	content_panel.gui_input.connect(_on_content_panel_gui_input)
+
+	# Create HTTPRequest for Claude API calls
+	claude_http_request = HTTPRequest.new()
+	add_child(claude_http_request)
+	claude_http_request.request_completed.connect(_on_claude_request_completed)
+	_load_anthropic_config()
+
+
+func _load_anthropic_config() -> void:
+	var config_file = FileAccess.open("res://config.json", FileAccess.READ)
+	if config_file:
+		var config = JSON.parse_string(config_file.get_as_text())
+		if config and config.has("anthropic"):
+			anthropic_api_key = config["anthropic"].get("api_key", "")
 
 
 func _input(event: InputEvent) -> void:
@@ -460,6 +476,8 @@ func _on_content_panel_gui_input(event: InputEvent) -> void:
 				container_context_menu = PopupMenu.new()
 				container_context_menu.add_item("Add Widget...", 0)
 				container_context_menu.add_item("Container Properties...", 1)
+				container_context_menu.add_separator()
+				container_context_menu.add_item("AI Prompts...", 2)
 				container_context_menu.id_pressed.connect(_on_container_context_action)
 				add_child(container_context_menu)
 			container_context_menu.position = Vector2i(get_global_mouse_position())
@@ -473,6 +491,8 @@ func _on_container_context_action(id: int) -> void:
 			widget_popup.popup()
 		1:  # Container Properties
 			show_container_properties()
+		2:  # AI Prompts
+			_show_ai_prompts_dialog()
 
 
 func _on_widget_selected(id: int) -> void:
@@ -540,10 +560,25 @@ func _spawn_widget(widget_type: String) -> Control:
 			widget.color = Color(0.5, 0.5, 0.8)
 			widget.custom_minimum_size = Vector2(60, 40)
 		"TextureRect":
-			# Use ColorRect as placeholder since we don't load actual textures
-			widget = ColorRect.new()
-			widget.color = Color(0.6, 0.4, 0.7, 0.8)  # Purple placeholder for textures
-			widget.custom_minimum_size = Vector2(64, 64)
+			# Use container with label as placeholder since we don't load actual textures
+			var tex_container = PanelContainer.new()
+			var tex_style = StyleBoxFlat.new()
+			tex_style.bg_color = Color(0.4, 0.35, 0.5, 0.9)
+			tex_style.border_width_left = 1
+			tex_style.border_width_right = 1
+			tex_style.border_width_top = 1
+			tex_style.border_width_bottom = 1
+			tex_style.border_color = Color(0.6, 0.5, 0.7)
+			tex_container.add_theme_stylebox_override("panel", tex_style)
+			tex_container.custom_minimum_size = Vector2(64, 64)
+
+			var tex_label = Label.new()
+			tex_label.text = "TEX"
+			tex_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			tex_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			tex_label.add_theme_color_override("font_color", Color(0.8, 0.7, 0.9))
+			tex_container.add_child(tex_label)
+			widget = tex_container
 		"ColorPickerButton":
 			widget = ColorPickerButton.new()
 			widget.color = Color(1, 0.5, 0.5)
@@ -662,6 +697,8 @@ func _on_widget_context_action(id: int) -> void:
 		2:  # Add Widget Here
 			widget_popup.position = Vector2i(get_global_mouse_position())
 			widget_popup.popup()
+		3:  # AI Prompts
+			_show_ai_prompts_dialog()
 
 
 func get_widgets() -> Array[Control]:
@@ -1054,3 +1091,287 @@ func _add_inner_number_property(prop_name: String, label_text: String, min_val: 
 			inner_container.add_theme_constant_override("separation", int(new_value))
 	)
 	hbox.add_child(spinbox)
+
+
+# ============================================
+# AI Prompts Dialog
+# ============================================
+
+var ai_prompts_dialog: Window
+var ai_prompt_title_edit: LineEdit
+var ai_prompt_content_edit: TextEdit
+var ai_regenerate_btn: Button
+var ai_response_edit: TextEdit
+var ai_images_grid: GridContainer
+var ai_model_dropdown: OptionButton
+var ai_prompt_images: Array = []
+
+# Claude API
+var claude_http_request: HTTPRequest
+var anthropic_api_key: String = ""
+
+
+func _show_ai_prompts_dialog() -> void:
+	if not ai_prompts_dialog:
+		_create_ai_prompts_dialog()
+
+	ai_prompt_title_edit.text = ""
+	ai_prompt_content_edit.text = ""
+	_clear_ai_images()
+
+	ai_prompts_dialog.popup_centered()
+
+
+func _create_ai_prompts_dialog() -> void:
+	ai_prompts_dialog = Window.new()
+	ai_prompts_dialog.title = "AI Prompts"
+	ai_prompts_dialog.size = Vector2i(650, 700)
+	ai_prompts_dialog.transient = true
+	ai_prompts_dialog.exclusive = false
+	ai_prompts_dialog.visible = false
+	add_child(ai_prompts_dialog)
+
+	var main_vbox := VBoxContainer.new()
+	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_vbox.add_theme_constant_override("separation", 10)
+	main_vbox.offset_left = 15
+	main_vbox.offset_top = 15
+	main_vbox.offset_right = -15
+	main_vbox.offset_bottom = -15
+	ai_prompts_dialog.add_child(main_vbox)
+
+	# Prompt title
+	var title_label := Label.new()
+	title_label.text = "Prompt Title:"
+	main_vbox.add_child(title_label)
+
+	ai_prompt_title_edit = LineEdit.new()
+	ai_prompt_title_edit.placeholder_text = "Enter a title for this prompt..."
+	ai_prompt_title_edit.custom_minimum_size.y = 30
+	main_vbox.add_child(ai_prompt_title_edit)
+
+	# Prompt content
+	var content_label := Label.new()
+	content_label.text = "Prompt Content:"
+	main_vbox.add_child(content_label)
+
+	ai_prompt_content_edit = TextEdit.new()
+	ai_prompt_content_edit.placeholder_text = "Enter the AI prompt content..."
+	ai_prompt_content_edit.custom_minimum_size.y = 100
+	ai_prompt_content_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(ai_prompt_content_edit)
+
+	# AI Prompt regenerate button
+	var prompt_hbox := HBoxContainer.new()
+	prompt_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(prompt_hbox)
+
+	var prompt_label := Label.new()
+	prompt_label.text = "AI Prompt"
+	prompt_hbox.add_child(prompt_label)
+
+	ai_regenerate_btn = Button.new()
+	ai_regenerate_btn.text = "Regenerate Prompt"
+	ai_regenerate_btn.pressed.connect(_on_ai_regenerate_prompt_pressed)
+	prompt_hbox.add_child(ai_regenerate_btn)
+
+	# Model selection dropdown
+	var model_hbox := HBoxContainer.new()
+	model_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(model_hbox)
+
+	var model_label := Label.new()
+	model_label.text = "Model:"
+	model_hbox.add_child(model_label)
+
+	ai_model_dropdown = OptionButton.new()
+	ai_model_dropdown.add_item("claude-sonnet-4-20250514")
+	ai_model_dropdown.add_item("claude-opus-4-20250514")
+	ai_model_dropdown.add_item("claude-haiku-3-5-20241022")
+	ai_model_dropdown.custom_minimum_size.x = 250
+	model_hbox.add_child(ai_model_dropdown)
+
+	# AI Response text box (larger than prompt content)
+	var response_label := Label.new()
+	response_label.text = "AI Response:"
+	main_vbox.add_child(response_label)
+
+	ai_response_edit = TextEdit.new()
+	ai_response_edit.placeholder_text = "AI generated response will appear here..."
+	ai_response_edit.custom_minimum_size.y = 120
+	ai_response_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(ai_response_edit)
+
+	# Image grid
+	var images_label := Label.new()
+	images_label.text = "Generated Images:"
+	main_vbox.add_child(images_label)
+
+	var images_scroll := ScrollContainer.new()
+	images_scroll.custom_minimum_size.y = 180
+	images_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(images_scroll)
+
+	ai_images_grid = GridContainer.new()
+	ai_images_grid.columns = 4
+	ai_images_grid.add_theme_constant_override("h_separation", 10)
+	ai_images_grid.add_theme_constant_override("v_separation", 10)
+	ai_images_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	images_scroll.add_child(ai_images_grid)
+
+	_add_placeholder_images(4)
+
+	# Buttons
+	var button_row := HBoxContainer.new()
+	button_row.alignment = BoxContainer.ALIGNMENT_END
+	button_row.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(button_row)
+
+	var generate_btn := Button.new()
+	generate_btn.text = "Regenerate Images"
+	generate_btn.custom_minimum_size = Vector2(140, 35)
+	generate_btn.pressed.connect(_on_ai_generate_pressed)
+	button_row.add_child(generate_btn)
+
+	var save_btn := Button.new()
+	save_btn.text = "Save"
+	save_btn.custom_minimum_size = Vector2(80, 35)
+	save_btn.pressed.connect(_on_ai_save_pressed)
+	button_row.add_child(save_btn)
+
+	var close_btn := Button.new()
+	close_btn.text = "Close"
+	close_btn.custom_minimum_size = Vector2(80, 35)
+	close_btn.pressed.connect(func(): ai_prompts_dialog.hide())
+	button_row.add_child(close_btn)
+
+	ai_prompts_dialog.close_requested.connect(func(): ai_prompts_dialog.hide())
+
+
+func _add_placeholder_images(count: int) -> void:
+	for i in range(count):
+		_add_image_slot(null)
+
+
+func _add_image_slot(texture: Texture2D) -> void:
+	var slot_vbox := VBoxContainer.new()
+	slot_vbox.add_theme_constant_override("separation", 5)
+
+	var image_rect := TextureRect.new()
+	image_rect.custom_minimum_size = Vector2(100, 100)
+	image_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	image_rect.texture = texture
+
+	if not texture:
+		var placeholder := ColorRect.new()
+		placeholder.color = Color(0.3, 0.3, 0.3, 1)
+		placeholder.custom_minimum_size = Vector2(100, 100)
+		slot_vbox.add_child(placeholder)
+	else:
+		slot_vbox.add_child(image_rect)
+
+	var checks_vbox := VBoxContainer.new()
+	checks_vbox.add_theme_constant_override("separation", 2)
+	slot_vbox.add_child(checks_vbox)
+
+	var claude_check := CheckBox.new()
+	claude_check.text = "Claude"
+	claude_check.add_theme_font_size_override("font_size", 11)
+	checks_vbox.add_child(claude_check)
+
+	var user_check := CheckBox.new()
+	user_check.text = "User"
+	user_check.add_theme_font_size_override("font_size", 11)
+	checks_vbox.add_child(user_check)
+
+	ai_images_grid.add_child(slot_vbox)
+
+	ai_prompt_images.append({
+		"slot": slot_vbox,
+		"image_rect": image_rect,
+		"claude_check": claude_check,
+		"user_check": user_check,
+		"texture": texture
+	})
+
+
+func _clear_ai_images() -> void:
+	for child in ai_images_grid.get_children():
+		child.queue_free()
+	ai_prompt_images.clear()
+	_add_placeholder_images(4)
+
+
+func _on_ai_regenerate_prompt_pressed() -> void:
+	var prompt = ai_prompt_content_edit.text
+	if prompt.is_empty():
+		ai_response_edit.text = "Error: Please enter a prompt first."
+		return
+
+	if anthropic_api_key.is_empty():
+		ai_response_edit.text = "Error: API key not configured in config.json"
+		return
+
+	ai_response_edit.text = "Generating response..."
+	ai_regenerate_btn.disabled = true
+
+	var selected_model = ai_model_dropdown.get_item_text(ai_model_dropdown.selected)
+
+	var body = JSON.stringify({
+		"model": selected_model,
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": prompt}]
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/json",
+		"x-api-key: " + anthropic_api_key,
+		"anthropic-version: 2023-06-01"
+	])
+
+	claude_http_request.request(
+		"https://api.anthropic.com/v1/messages",
+		headers,
+		HTTPClient.METHOD_POST,
+		body
+	)
+
+
+func _on_claude_request_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	ai_regenerate_btn.disabled = false
+
+	var response_text = body.get_string_from_utf8()
+	var json = JSON.parse_string(response_text)
+
+	if response_code == 200 and json:
+		if json.has("content") and json["content"].size() > 0:
+			ai_response_edit.text = json["content"][0]["text"]
+		else:
+			ai_response_edit.text = "Error: Unexpected response format"
+	else:
+		var error_msg = "Error: " + str(response_code)
+		if json and json.has("error"):
+			error_msg += " - " + json["error"].get("message", "Unknown error")
+		ai_response_edit.text = error_msg
+
+
+func _on_ai_generate_pressed() -> void:
+	print("Generate AI images - not yet implemented")
+
+
+func _on_ai_save_pressed() -> void:
+	var prompt_data = {
+		"title": ai_prompt_title_edit.text,
+		"content": ai_prompt_content_edit.text,
+		"images": []
+	}
+
+	for img_data in ai_prompt_images:
+		if img_data["texture"]:
+			prompt_data["images"].append({
+				"claude_approved": img_data["claude_check"].button_pressed,
+				"user_approved": img_data["user_check"].button_pressed
+			})
+
+	print("Saving AI prompt: ", prompt_data)
+	ai_prompts_dialog.hide()
