@@ -101,6 +101,9 @@ func _on_window_resized() -> void:
 	if viewport_label:
 		viewport_label.position = viewport_offset + Vector2(5, -25)
 
+	# Position toolbars at top center of viewport
+	_position_toolbars()
+
 	# Move all containers by the offset delta
 	if offset_delta != Vector2.ZERO:
 		for container in all_containers:
@@ -108,12 +111,29 @@ func _on_window_resized() -> void:
 				container.global_position += offset_delta
 
 
+func _position_toolbars() -> void:
+	"""Position Project and Controls toolbars at the center of viewport"""
+	var center_x = viewport_offset.x + project_viewport_size.x / 2.0
+	var center_y = viewport_offset.y + project_viewport_size.y / 2.0
+
+	# Project toolbar on the left, Controls on the right
+	var gap = 30.0  # Gap between panels
+
+	if scene_hierarchy:
+		var panel_width = scene_hierarchy.size.x if scene_hierarchy.size.x > 0 else 200.0
+		var panel_height = scene_hierarchy.size.y if scene_hierarchy.size.y > 0 else 300.0
+		scene_hierarchy.global_position = Vector2(center_x - panel_width - gap / 2.0, center_y - panel_height / 2.0)
+
+	if controls_panel:
+		var panel_height = controls_panel.size.y if controls_panel.size.y > 0 else 300.0
+		controls_panel.global_position = Vector2(center_x + gap / 2.0, center_y - panel_height / 2.0)
+
+
 func _create_scene_hierarchy() -> void:
 	scene_hierarchy = SceneHierarchyScene.instantiate()
 	add_child(scene_hierarchy)
 
-	# Position to the right of the controls panel
-	scene_hierarchy.global_position = Vector2(340, 100)
+	# Position will be set by _position_toolbars() in _on_window_resized()
 
 	# Connect hierarchy signals
 	scene_hierarchy.node_selected.connect(_on_hierarchy_node_selected)
