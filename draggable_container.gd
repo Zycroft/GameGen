@@ -90,12 +90,12 @@ func _ready() -> void:
 	# Create widget context menu (for delete)
 	widget_context_menu = PopupMenu.new()
 	widget_context_menu.name = "WidgetContextMenu"
+	widget_context_menu.add_item("AI Prompts...", 3)
+	widget_context_menu.add_separator()
 	widget_context_menu.add_item("Properties...", 0)
 	widget_context_menu.add_item("Delete Widget", 1)
 	widget_context_menu.add_separator()
 	widget_context_menu.add_item("Add Widget Here...", 2)
-	widget_context_menu.add_separator()
-	widget_context_menu.add_item("AI Prompts...", 3)
 	widget_context_menu.id_pressed.connect(_on_widget_context_action)
 	add_child(widget_context_menu)
 
@@ -510,10 +510,10 @@ func _on_content_panel_gui_input(event: InputEvent) -> void:
 			# Show container context menu
 			if not container_context_menu:
 				container_context_menu = PopupMenu.new()
+				container_context_menu.add_item("AI Prompts...", 2)
+				container_context_menu.add_separator()
 				container_context_menu.add_item("Add Widget...", 0)
 				container_context_menu.add_item("Container Properties...", 1)
-				container_context_menu.add_separator()
-				container_context_menu.add_item("AI Prompts...", 2)
 				container_context_menu.id_pressed.connect(_on_container_context_action)
 				add_child(container_context_menu)
 			container_context_menu.position = Vector2i(get_global_mouse_position())

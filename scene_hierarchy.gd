@@ -231,14 +231,14 @@ func _load_anthropic_config() -> void:
 
 func _create_context_menu() -> void:
 	context_menu = PopupMenu.new()
+	context_menu.add_item("AI Prompts...", 5)
+	context_menu.add_separator()
 	context_menu.add_item("Properties...", 0)
 	context_menu.add_separator()
 	context_menu.add_item("Add Child Node...", 1)
 	context_menu.add_separator()
 	context_menu.add_item("Rename", 2)
 	context_menu.add_item("Duplicate", 3)
-	context_menu.add_separator()
-	context_menu.add_item("AI Prompts...", 5)
 	context_menu.add_separator()
 	context_menu.add_item("Delete", 4)
 	context_menu.id_pressed.connect(_on_context_menu_action)
