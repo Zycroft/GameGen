@@ -405,7 +405,15 @@ class MermaidParser:
         'PanelContainer', 'MarginContainer', 'CenterContainer',
         'AspectRatioContainer', 'HSplitContainer', 'VSplitContainer',
         'TabContainer', 'ScrollContainer', 'ColorRect', 'TextureRect',
-        'SubViewportContainer', 'CanvasItem'
+        'SubViewportContainer', 'CanvasLayer'
+    }
+
+    # Type aliases for abstract/deprecated types
+    TYPE_ALIASES = {
+        'CanvasItem': 'Control',  # CanvasItem is abstract, use Control
+        'WindowDialog': 'Control',  # Deprecated in Godot 4.x
+        'Sprite': 'Sprite2D',
+        'AnimatedSprite': 'AnimatedSprite2D',
     }
 
     def parse(self, mermaid_text: str) -> Optional[SceneNode]:
@@ -461,10 +469,16 @@ class MermaidParser:
 
         for word in type_str.replace(' or ', ' ').split():
             word = word.strip()
+            # Check aliases first
+            if word in self.TYPE_ALIASES:
+                return self.TYPE_ALIASES[word]
             if word in self.KNOWN_TYPES:
                 return word
 
-        # Try to find any known type in the string
+        # Try to find any known type or alias in the string
+        for alias, replacement in self.TYPE_ALIASES.items():
+            if alias in type_str:
+                return replacement
         for known in self.KNOWN_TYPES:
             if known in type_str:
                 return known
