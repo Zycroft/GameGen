@@ -185,6 +185,10 @@ class GDScriptAnalyzer:
 class TscnParser:
     """Parse Godot .tscn scene files"""
 
+    # Default viewport size for layout calculations
+    DEFAULT_VIEWPORT_WIDTH = 1920
+    DEFAULT_VIEWPORT_HEIGHT = 1080
+
     # 2D node types
     NODE_2D_TYPES = {
         'Node2D', 'Sprite2D', 'AnimatedSprite2D', 'CharacterBody2D',
@@ -385,7 +389,160 @@ class TscnParser:
 
         # Build the scene tree starting from root
         self.id_counter = 0
-        return self._convert_node_to_tree(self.root_node, script_analysis)
+        tree = self._convert_node_to_tree(self.root_node, script_analysis)
+
+        # Post-process: calculate absolute positions based on container layout
+        self._calculate_layout_positions(tree, 0, 0)
+
+        return tree
+
+    def _calculate_layout_positions(self, node: Dict[str, Any], parent_x: float, parent_y: float,
+                                      available_width: float = None, available_height: float = None,
+                                      is_layout_child: bool = False):
+        """
+        Calculate absolute positions and sizes for nodes based on parent container layout rules.
+
+        VBoxContainer: stacks children vertically (accumulates Y)
+        HBoxContainer: stacks children horizontally (accumulates X)
+        Other containers: children keep their relative positions
+
+        Also calculates sizes for children using size_flags when available.
+        """
+        node_type = node.get('type', '')
+        props = node.get('properties', {})
+
+        # Initialize available space from viewport if not provided
+        if available_width is None:
+            available_width = self.DEFAULT_VIEWPORT_WIDTH
+        if available_height is None:
+            available_height = self.DEFAULT_VIEWPORT_HEIGHT
+
+        # For children of layout containers, position is set by parent - don't add own offset
+        # For other nodes, add own offset to parent position
+        if is_layout_child:
+            abs_x = parent_x
+            abs_y = parent_y
+        else:
+            own_x = props.get('positionX', 0)
+            own_y = props.get('positionY', 0)
+            abs_x = parent_x + own_x
+            abs_y = parent_y + own_y
+
+        # Update node's position to absolute
+        props['positionX'] = abs_x
+        props['positionY'] = abs_y
+
+        # Get node size (or use available space for full-size containers)
+        node_width = props.get('sizeX', available_width)
+        node_height = props.get('sizeY', available_height)
+
+        # Update size if not set
+        if 'sizeX' not in props:
+            props['sizeX'] = node_width
+        if 'sizeY' not in props:
+            props['sizeY'] = node_height
+
+        # Process children based on container type
+        children = node.get('children', [])
+        widgets = node.get('widgets', [])
+
+        if node_type == 'VBoxContainer':
+            # Calculate total fixed height and count expanding children
+            fixed_height = 0
+            expand_count = 0
+            for child in children:
+                child_props = child.get('properties', {})
+                if child_props.get('sizeY', 0) > 0:
+                    fixed_height += child_props.get('sizeY', 0)
+                else:
+                    expand_count += 1
+
+            # Distribute remaining height to expanding children
+            remaining_height = node_height - fixed_height
+            expand_height = remaining_height / expand_count if expand_count > 0 else 200
+
+            # Stack children vertically
+            current_y = abs_y
+            for child in children:
+                child_props = child.get('properties', {})
+                # Set child width to full container width
+                if 'sizeX' not in child_props or child_props.get('sizeX', 0) == 0:
+                    child_props['sizeX'] = node_width
+                # Set child height (use expand_height if not set)
+                if 'sizeY' not in child_props or child_props.get('sizeY', 0) == 0:
+                    child_props['sizeY'] = expand_height
+                # Set child's absolute position
+                child_props['positionX'] = abs_x
+                child_props['positionY'] = current_y
+                # Recursively process child with available space (mark as layout child)
+                self._calculate_layout_positions(child, abs_x, current_y,
+                                                  child_props['sizeX'], child_props['sizeY'],
+                                                  is_layout_child=True)
+                # Move Y down by child's height
+                current_y += child_props.get('sizeY', 200)
+
+            # Also position widgets
+            for widget in widgets:
+                widget_props = widget.get('properties', {})
+                widget_props['positionX'] = abs_x
+                widget_props['positionY'] = current_y
+                widget_height = widget_props.get('sizeY', 40)
+                current_y += widget_height
+
+        elif node_type == 'HBoxContainer':
+            # Calculate total fixed width and count expanding children
+            fixed_width = 0
+            expand_count = 0
+            for child in children:
+                child_props = child.get('properties', {})
+                if child_props.get('sizeX', 0) > 0:
+                    fixed_width += child_props.get('sizeX', 0)
+                else:
+                    expand_count += 1
+
+            # Distribute remaining width to expanding children
+            remaining_width = node_width - fixed_width
+            expand_width = remaining_width / expand_count if expand_count > 0 else 200
+
+            # Stack children horizontally
+            current_x = abs_x
+            for child in children:
+                child_props = child.get('properties', {})
+                # Set child height to full container height
+                if 'sizeY' not in child_props or child_props.get('sizeY', 0) == 0:
+                    child_props['sizeY'] = node_height
+                # Set child width (use expand_width if not set)
+                if 'sizeX' not in child_props or child_props.get('sizeX', 0) == 0:
+                    child_props['sizeX'] = expand_width
+                # Set child's absolute position
+                child_props['positionX'] = current_x
+                child_props['positionY'] = abs_y
+                # Recursively process child with available space (mark as layout child)
+                self._calculate_layout_positions(child, current_x, abs_y,
+                                                  child_props['sizeX'], child_props['sizeY'],
+                                                  is_layout_child=True)
+                # Move X right by child's width
+                current_x += child_props.get('sizeX', 200)
+
+            # Also position widgets
+            for widget in widgets:
+                widget_props = widget.get('properties', {})
+                widget_props['positionX'] = current_x
+                widget_props['positionY'] = abs_y
+                widget_width = widget_props.get('sizeX', 100)
+                current_x += widget_width
+
+        else:
+            # Other containers: children keep relative positions, add parent offset
+            for child in children:
+                self._calculate_layout_positions(child, abs_x, abs_y, node_width, node_height)
+            # Update widget positions too
+            for widget in widgets:
+                widget_props = widget.get('properties', {})
+                widget_x = widget_props.get('positionX', 0)
+                widget_y = widget_props.get('positionY', 0)
+                widget_props['positionX'] = abs_x + widget_x
+                widget_props['positionY'] = abs_y + widget_y
 
     def _convert_node_to_tree(self, node_name: str, script_analysis: Dict = None) -> Dict[str, Any]:
         """Convert a node and its children to scene tree format"""
@@ -499,13 +656,31 @@ class TscnParser:
                     result['positionX'] = approx['x']
                     result['positionY'] = approx['y']
 
-        # Size
+        # Size - check multiple sources, prioritize explicit size over minimum
+        size_x = 0
+        size_y = 0
+
         if 'size' in props and isinstance(props['size'], dict):
-            result['sizeX'] = props['size'].get('x', 200)
-            result['sizeY'] = props['size'].get('y', 150)
+            size_x = props['size'].get('x', 0)
+            size_y = props['size'].get('y', 0)
         elif 'offset_right' in props and 'offset_left' in props:
-            result['sizeX'] = props['offset_right'] - props.get('offset_left', 0)
-            result['sizeY'] = props.get('offset_bottom', 150) - props.get('offset_top', 0)
+            size_x = props['offset_right'] - props.get('offset_left', 0)
+            size_y = props.get('offset_bottom', 0) - props.get('offset_top', 0)
+
+        # Check custom_minimum_size as fallback for dimensions not set
+        if 'custom_minimum_size' in props and isinstance(props['custom_minimum_size'], dict):
+            min_x = props['custom_minimum_size'].get('x', 0)
+            min_y = props['custom_minimum_size'].get('y', 0)
+            if size_x == 0 and min_x > 0:
+                size_x = min_x
+            if size_y == 0 and min_y > 0:
+                size_y = min_y
+
+        # Store sizes - 0 means "expand to fill" which layout calculation handles
+        if size_x > 0:
+            result['sizeX'] = size_x
+        if size_y > 0:
+            result['sizeY'] = size_y
 
         # Check for programmatic size
         if node_specific.get('size_programmatic'):

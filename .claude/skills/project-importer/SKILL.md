@@ -18,7 +18,18 @@ Imports entire Godot projects into GameGen's scene hierarchy format, including:
 3. Analyzes GDScript files to detect programmatic position/size assignments
 4. Flags nodes with `positionProgrammatic` or `sizeProgrammatic` when code modifies them
 5. Extracts approximate values from code when possible
-6. Uploads to DynamoDB with all scenes merged under a project root
+6. **Calculates absolute positions** based on container layout rules (VBox/HBox stacking)
+7. Uploads to DynamoDB with all scenes merged under a project root
+
+## Layout Position Calculation
+
+The importer automatically calculates absolute positions for nodes based on their parent container type:
+
+- **VBoxContainer**: Children are stacked vertically. Each child's Y position equals the sum of all previous siblings' heights.
+- **HBoxContainer**: Children are stacked horizontally. Each child's X position equals the sum of all previous siblings' widths.
+- **Other containers**: Children inherit their parent's position offset added to their own relative position.
+
+This ensures that when viewing individual nodes in GameGen, they appear at their correct absolute positions within the viewport.
 
 ## Usage
 
