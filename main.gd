@@ -285,15 +285,15 @@ func _on_hierarchy_node_selected(node_data: Dictionary) -> void:
 						_highlight_container(container)
 				return
 
-	# Check if this node already exists visually - if so, just highlight it
+	# Check if this node already exists visually AND is in the current display
+	# (i.e., it's in all_containers which tracks currently displayed containers)
 	if all_nodes.has(node_id):
 		var existing_node = all_nodes[node_id]
 		if existing_node is DraggableContainer and is_instance_valid(existing_node):
-			_highlight_container(existing_node)
-			return
-		elif existing_node is Node2D and is_instance_valid(existing_node):
-			_highlight_node2d(existing_node)
-			return
+			# Only highlight if this container is currently displayed
+			if existing_node in all_containers:
+				_highlight_container(existing_node)
+				return
 
 	# Node not visible - clear and recreate from selected node
 	_clear_all_visual_nodes()
