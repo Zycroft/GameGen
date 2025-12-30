@@ -1,12 +1,12 @@
 ---
-name: project-sync
-description: Sync GameGen projects to Godot by parsing AI Game Design responses and generating .tscn scene files. Consumes AI responses to build Godot objects/controls.
+name: push-design
+description: Push GameGen Game Design to Godot by parsing AI responses and generating .tscn scene files. Consumes AI responses to build Godot objects/controls.
 allowed-tools: Read, Write, Bash(python3:*), Glob, Grep, mcp__dynamodb__get_item, mcp__dynamodb__query_table, mcp__dynamodb__scan_table, mcp__dynamodb__put_item
 ---
 
-# Project Sync Skill
+# Push Design Skill
 
-Synchronizes GameGen projects to Godot by:
+Pushes GameGen Game Design to Godot by:
 1. Fetching Game Design AI responses from DynamoDB
 2. Parsing the AI-generated scene hierarchy
 3. Generating Godot .tscn scene files
@@ -14,7 +14,7 @@ Synchronizes GameGen projects to Godot by:
 
 ## What This Skill Does
 
-The Project Sync skill bridges GameGen's AI-assisted design process with actual Godot project files:
+The Push Design skill bridges GameGen's AI-assisted design process with actual Godot project files:
 
 1. **Reads Game Design prompts** from the AIPrompts table
 2. **Parses AI responses** to extract scene hierarchies (the AI generates tree structures like `Root (Node2D) → UI (Control) → ...`)
@@ -25,7 +25,7 @@ The Project Sync skill bridges GameGen's AI-assisted design process with actual 
 ## Usage
 
 Ask Claude to:
-- "Sync project 2 to Godot"
+- "Push design for project 2"
 - "Build Godot project from the Game Design response"
 - "Generate .tscn files from the AI design for project 1"
 - "Update the Godot project based on Game Design"
@@ -34,12 +34,12 @@ Ask Claude to:
 
 1. **Create Game Design** in GameGen (right-click [PRJ] → Game Design)
 2. **Generate AI response** describing the scene structure
-3. **Run project-sync** to convert AI response to .tscn files
+3. **Run push-design** to convert AI response to .tscn files
 
 ### Command Line Testing
 
 ```bash
-cd .claude/skills/project-sync/scripts
+cd .claude/skills/push-design/scripts
 
 # Sync from existing SceneLayout
 python3 sync.py --project-id 2
@@ -59,7 +59,7 @@ python3 sync.py --project-id 2 --output-dir /path/to/godot/project
 ### Module Structure
 
 ```
-project-sync/
+push-design/
 ├── SKILL.md           # This file
 └── scripts/
     ├── models.py      # Data classes (SceneNode, NodeProperties)

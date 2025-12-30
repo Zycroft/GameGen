@@ -887,7 +887,7 @@ func _create_title_bar_context_menu() -> void:
 	title_bar_context_menu = PopupMenu.new()
 	title_bar_context_menu.add_item("Game Design...", 0)
 	title_bar_context_menu.add_separator()
-	title_bar_context_menu.add_item("Sync to Godot...", 1)
+	title_bar_context_menu.add_item("Push Design", 1)
 	title_bar_context_menu.id_pressed.connect(_on_title_bar_menu_action)
 	add_child(title_bar_context_menu)
 
@@ -1037,16 +1037,16 @@ func _on_title_bar_menu_action(id: int) -> void:
 		0:  # Game Design
 			_load_game_design_from_dynamodb()
 			game_design_dialog.popup_centered()
-		1:  # Sync to Godot
+		1:  # Push Design
 			_request_project_sync()
 
 
 func _request_project_sync() -> void:
 	if current_project_id < 0:
-		print("PROJECT_SYNC: No project selected")
+		print("PUSH_DESIGN: No project selected")
 		return
-	print("PROJECT_SYNC_REQUEST: project_id=%d" % current_project_id)
-	print("Run '/project-sync' in Claude Code to sync this project to Godot")
+	print("PUSH_DESIGN_REQUEST: project_id=%d" % current_project_id)
+	print("Run '/push-design' in Claude Code to push this design to Godot")
 
 
 func _on_game_design_close() -> void:
