@@ -1,3 +1,5 @@
+# Main application controller for GameGen - manages scene tree, viewport frame,
+# project loading/saving to DynamoDB, node spawning, and panel coordination.
 extends Node2D
 
 const DraggableContainerScene = preload("res://draggable_container.tscn")
@@ -155,10 +157,11 @@ func _create_scene_hierarchy() -> void:
 
 func _initialize_scene_root() -> void:
 	node_id_counter = 0
+	var root_name = current_project_name if not current_project_name.is_empty() else "Root"
 	scene_root = {
 		"id": _get_next_node_id(),
-		"type": "Node2D",
-		"name": "Root",
+		"type": "Project",
+		"name": root_name,
 		"children": [],
 		"properties": {}
 	}
@@ -1075,7 +1078,8 @@ func _on_project_selected(project_data: Dictionary) -> void:
 
 func _update_containers_project_id() -> void:
 	for container in all_containers:
-		container.current_project_id = current_project_id
+		if is_instance_valid(container):
+			container.current_project_id = current_project_id
 
 
 # ==================== SAVE ====================
@@ -1453,6 +1457,9 @@ func _on_load_completed(_result: int, response_code: int, _headers: PackedString
 					controls_panel.move_to_front()
 		else:
 			print("No saved scene found for this project")
+			# Clear existing scene and initialize fresh root
+			_clear_all_scene_nodes()
+			_initialize_scene_root()
 	else:
 		var error_body = body.get_string_from_utf8()
 		print("Failed to load scene: ", response_code, " - ", error_body)
@@ -1490,6 +1497,9 @@ func _clear_all_scene_nodes() -> void:
 func _deserialize_scene_tree(scene_data: Dictionary) -> void:
 	# Set scene root data
 	scene_root = scene_data.duplicate(true)
+
+	# Update root type to Project
+	scene_root["type"] = "Project"
 
 	# Update root name to current project name
 	if not current_project_name.is_empty():

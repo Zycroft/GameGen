@@ -1,3 +1,5 @@
+# Visual container representing a Godot Control node - supports drag/resize,
+# widget spawning, AI prompts per node, and properties editing.
 class_name DraggableContainer
 extends Panel
 

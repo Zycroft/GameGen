@@ -1,3 +1,5 @@
+# Controls toolbar panel - provides categorized buttons for spawning containers
+# (VBox, HBox, Grid, etc.) and UI widgets into the scene.
 class_name ControlsPanel
 extends Panel
 
