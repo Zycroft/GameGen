@@ -352,8 +352,13 @@ def generate_response_openai(prompt_content: str, model: str, api_key: str) -> d
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt_content}],
-        "max_tokens": 4096
     }
+
+    # GPT-5 and o1/o3 models use max_completion_tokens, older models use max_tokens
+    if model.startswith('gpt-5') or model.startswith('o1') or model.startswith('o3'):
+        payload["max_completion_tokens"] = 4096
+    else:
+        payload["max_tokens"] = 4096
 
     try:
         rate_limit()
