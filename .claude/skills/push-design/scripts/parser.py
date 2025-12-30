@@ -68,6 +68,23 @@ class NodePropertyExtractor:
         re.IGNORECASE
     )
 
+    # Pattern for size flags: "Size Flags: Horizontal: Fill + Expand, Vertical: Fill"
+    SIZE_FLAGS_H_PATTERN = re.compile(
+        r'(?:Size\s*Flags|Horizontal)[:\s]*(?:Horizontal[:\s]*)?(Fill(?:\s*\+?\s*Expand)?)',
+        re.IGNORECASE
+    )
+
+    SIZE_FLAGS_V_PATTERN = re.compile(
+        r'Vertical[:\s]*(Fill(?:\s*\+?\s*Expand)?)',
+        re.IGNORECASE
+    )
+
+    # Pattern for Layout -> Full Rect
+    FULL_RECT_PATTERN = re.compile(
+        r'Layout\s*[→:]\s*Full\s*Rect',
+        re.IGNORECASE
+    )
+
     # Layout position keywords
     LAYOUT_KEYWORDS = {
         'top': ['top', 'upper', 'header', 'menu', 'navbar', 'topmenu', 'menubar'],
@@ -168,6 +185,27 @@ class NodePropertyExtractor:
         if sep_match:
             props.separation = int(sep_match.group(1))
 
+        # Extract size flags (Fill = 1, Fill + Expand = 3)
+        h_flag_match = self.SIZE_FLAGS_H_PATTERN.search(full_text)
+        if h_flag_match:
+            flag_text = h_flag_match.group(1).lower()
+            if 'expand' in flag_text:
+                props.extra['size_flags_horizontal'] = 3  # Fill + Expand
+            else:
+                props.extra['size_flags_horizontal'] = 1  # Fill only
+
+        v_flag_match = self.SIZE_FLAGS_V_PATTERN.search(full_text)
+        if v_flag_match:
+            flag_text = v_flag_match.group(1).lower()
+            if 'expand' in flag_text:
+                props.extra['size_flags_vertical'] = 3  # Fill + Expand
+            else:
+                props.extra['size_flags_vertical'] = 1  # Fill only
+
+        # Check for Full Rect layout
+        if self.FULL_RECT_PATTERN.search(full_text):
+            props.extra['full_rect'] = True
+
         # Calculate from percentage if explicit size not found
         if props.size_x == 0:
             pct_match = self.PERCENT_WIDTH_PATTERN.search(full_text)
@@ -246,6 +284,14 @@ class NodePropertyExtractor:
             node.properties.min_size_y = extracted.min_size_y
         if extracted.separation is not None:
             node.properties.separation = extracted.separation
+
+        # Apply extracted layout properties (size flags, full_rect)
+        if 'size_flags_horizontal' in extracted.extra:
+            node.properties.extra['size_flags_horizontal'] = extracted.extra['size_flags_horizontal']
+        if 'size_flags_vertical' in extracted.extra:
+            node.properties.extra['size_flags_vertical'] = extracted.extra['size_flags_vertical']
+        if extracted.extra.get('full_rect'):
+            node.properties.extra['full_rect'] = True
 
         # Apply explicit position if found
         if extracted.position_x != 0:

@@ -49,7 +49,7 @@ class TscnGenerator:
             self.lines.append('')
 
         # Generate node tree
-        self._generate_node(root, None)
+        self._generate_node(root, None, None)
 
         return '\n'.join(self.lines)
 
@@ -103,7 +103,7 @@ class TscnGenerator:
         }
         return type_map.get(ext, 'Resource')
 
-    def _generate_node(self, node: SceneNode, parent_path: Optional[str]) -> None:
+    def _generate_node(self, node: SceneNode, parent_path: Optional[str], parent_type: Optional[str] = None) -> None:
         """Generate node declaration and properties."""
         node_type = node.type
 
@@ -124,8 +124,8 @@ class TscnGenerator:
             script_id = self.ext_resources[node.script]
             self.lines.append(f'script = ExtResource("{script_id}")')
 
-        # Add properties
-        props = self._map_properties(node)
+        # Add properties (pass parent_type for layout decisions)
+        props = self._map_properties(node, parent_type)
         for key, value in props.items():
             formatted = self._format_value(key, value)
             self.lines.append(f'{key} = {formatted}')
@@ -140,15 +140,15 @@ class TscnGenerator:
         else:
             child_parent = f'{parent_path}/{node.name}'
 
-        # Process children
+        # Process children (pass current node type as parent_type)
         for child in node.children:
-            self._generate_node(child, child_parent)
+            self._generate_node(child, child_parent, node_type)
 
         # Process widgets (they're children in Godot)
         for widget in node.widgets:
-            self._generate_node(widget, child_parent)
+            self._generate_node(widget, child_parent, node_type)
 
-    def _map_properties(self, node: SceneNode) -> Dict[str, Any]:
+    def _map_properties(self, node: SceneNode, parent_type: Optional[str] = None) -> Dict[str, Any]:
         """Map SceneNode properties to Godot .tscn format."""
         props = node.properties
         result = {}
@@ -156,21 +156,81 @@ class TscnGenerator:
         # Position handling based on node type
         is_2d = node.type in NODE_2D_TYPES
         is_control = node.type in CONTROL_TYPES or node.type in CONTAINER_TYPES
+        is_container = node.type in CONTAINER_TYPES
+        parent_is_container = parent_type in CONTAINER_TYPES if parent_type else False
 
         if is_2d:
             # 2D nodes use position property
             if props.position_x != 0 or props.position_y != 0:
                 result['position'] = {'type': 'Vector2', 'x': props.position_x, 'y': props.position_y}
         elif is_control:
-            # Control nodes use offset properties
-            if props.position_x != 0:
-                result['offset_left'] = float(props.position_x)
-            if props.position_y != 0:
-                result['offset_top'] = float(props.position_y)
-            if props.size_x != 0:
-                result['offset_right'] = float(props.position_x + props.size_x)
-            if props.size_y != 0:
-                result['offset_bottom'] = float(props.position_y + props.size_y)
+            # Check for layout mode from extra properties
+            layout_mode = props.extra.get('layout_mode')
+            full_rect = props.extra.get('full_rect', False)
+
+            # If parent is a container, use layout_mode 2 (container child)
+            if parent_is_container:
+                result['layout_mode'] = 2
+
+                # Use extracted size flags, or infer from node name/type
+                h_flags = props.extra.get('size_flags_horizontal')
+                v_flags = props.extra.get('size_flags_vertical')
+
+                # Default inference based on common patterns
+                if h_flags is None:
+                    # Toolbars in HBox should not expand horizontally (use min width)
+                    if 'Toolbar' in node.name:
+                        h_flags = 1  # Fill only
+                    else:
+                        h_flags = 3  # Fill + Expand
+
+                if v_flags is None:
+                    # MenuBar and StatusBar should not expand vertically
+                    if node.name in ('MenuBar', 'StatusBar') or 'Bar' in node.name:
+                        v_flags = 1  # Fill only
+                    else:
+                        v_flags = 3  # Fill + Expand
+
+                result['size_flags_horizontal'] = h_flags
+                result['size_flags_vertical'] = v_flags
+
+                # Add minimum sizes from properties or defaults
+                min_x = props.min_size_x
+                min_y = props.min_size_y
+
+                # Default minimum sizes if not specified
+                if min_x == 0 and 'Toolbar' in node.name:
+                    min_x = 200
+                if min_y == 0 and node.name == 'MenuBar':
+                    min_y = 30
+                if min_y == 0 and node.name == 'StatusBar':
+                    min_y = 20
+
+                if min_x != 0 or min_y != 0:
+                    result['custom_minimum_size'] = {'type': 'Vector2', 'x': min_x, 'y': min_y}
+            # Root controls or controls needing full rect use anchors
+            elif full_rect or node.name in ('Root', 'ScreenStack', 'DialogHost', 'GameView', 'DialogStack'):
+                result['layout_mode'] = 1
+                result['anchors_preset'] = 15  # PRESET_FULL_RECT
+                result['anchor_right'] = 1.0
+                result['anchor_bottom'] = 1.0
+            # ModalBlocker should be full rect but hidden by default
+            elif node.name == 'ModalBlocker':
+                result['visible'] = False
+                result['layout_mode'] = 1
+                result['anchors_preset'] = 15  # PRESET_FULL_RECT
+                result['anchor_right'] = 1.0
+                result['anchor_bottom'] = 1.0
+            else:
+                # Regular control with offset positioning
+                if props.position_x != 0:
+                    result['offset_left'] = float(props.position_x)
+                if props.position_y != 0:
+                    result['offset_top'] = float(props.position_y)
+                if props.size_x != 0:
+                    result['offset_right'] = float(props.position_x + props.size_x)
+                if props.size_y != 0:
+                    result['offset_bottom'] = float(props.position_y + props.size_y)
 
         # Custom minimum size
         if props.min_size_x != 0 or props.min_size_y != 0:
