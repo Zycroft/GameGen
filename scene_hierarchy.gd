@@ -906,7 +906,8 @@ func _create_title_bar_context_menu() -> void:
 	title_bar_context_menu = PopupMenu.new()
 	title_bar_context_menu.add_item("Game Design...", 0)
 	title_bar_context_menu.add_separator()
-	title_bar_context_menu.add_item("Push Design", 1)
+	title_bar_context_menu.add_item("GameGen -> Godot", 1)
+	title_bar_context_menu.add_item("Godot -> GameGen", 3)
 	title_bar_context_menu.add_separator()
 	title_bar_context_menu.add_item("Save Toolbar Layout", 2)
 	title_bar_context_menu.id_pressed.connect(_on_title_bar_menu_action)
@@ -1058,10 +1059,12 @@ func _on_title_bar_menu_action(id: int) -> void:
 		0:  # Game Design
 			_load_game_design_from_dynamodb()
 			game_design_dialog.popup_centered()
-		1:  # Push Design
+		1:  # GameGen -> Godot
 			_request_project_sync()
 		2:  # Save Toolbar Layout
 			save_toolbar_layout_requested.emit()
+		3:  # Godot -> GameGen
+			_request_project_import()
 
 
 func _request_project_sync() -> void:
@@ -1070,6 +1073,14 @@ func _request_project_sync() -> void:
 		return
 	print("PUSH_DESIGN_REQUEST: project_id=%d" % current_project_id)
 	print("Run '/push-design' in Claude Code to push this design to Godot")
+
+
+func _request_project_import() -> void:
+	if current_project_id < 0:
+		print("PROJECT_IMPORT: No project selected")
+		return
+	print("PROJECT_IMPORT_REQUEST: project_id=%d" % current_project_id)
+	print("Run '/project-importer' in Claude Code to import Godot project to GameGen")
 
 
 func _on_game_design_close() -> void:
