@@ -1,41 +1,5 @@
 {
-	"dynamodb": {
-		"endpoint": "http://zycroft.duckdns.org:8001",
-		"region": "us-west-2"
-	},
-	"tables": {
-		"projects": "Projects",
-		"sceneLayout": "SceneLayout",
-		"aiPrompts": "AIPrompts",
-		"usageTracking": "UsageTracking"
-	},
-	"daily_limits": {
-		"default": 5,
-		"Zycroft": 100,
-		"OpenAI": 20,
-		"Claude": 5,
-		"Gemini": 5,
-		"Grok": 5
-	},
-	"daily_image_limits": {
-		"default": 3,
-		"OpenAI": 20,
-		"Stability": 3,
-		"Midjourney": 3
-	},
 	"ai_services": {
-		"Zycroft": [
-			"llama3.2:3b",
-			"qwen2.5:7b-instruct",
-			"mistral:7b"
-		],
-		"OpenAI": [
-			"gpt-5.2",
-			"gpt-5.2-pro",
-			"gpt-4o",
-			"gpt-4o-mini",
-			"gpt-4-turbo"
-		],
 		"Claude": [
 			"claude-sonnet-4-20250514",
 			"claude-opus-4-20250514",
@@ -51,9 +15,43 @@
 			"grok-3",
 			"grok-3-mini",
 			"grok-2"
+		],
+		"OpenAI": [
+			"gpt-5.2",
+			"gpt-5.2-pro",
+			"gpt-4o",
+			"gpt-4o-mini",
+			"gpt-4-turbo"
+		],
+		"Zycroft": [
+			"llama3.2:3b",
+			"qwen2.5:7b-instruct",
+			"mistral:7b"
 		]
 	},
+	"daily_image_limits": {
+		"Midjourney": 3.0,
+		"OpenAI": 20.0,
+		"Stability": 3.0,
+		"default": 3.0
+	},
+	"daily_limits": {
+		"Claude": 5.0,
+		"Gemini": 5.0,
+		"Grok": 5.0,
+		"OpenAI": 20.0,
+		"Zycroft": 100.0,
+		"default": 5.0
+	},
+	"dynamodb": {
+		"endpoint": "http://zycroft.duckdns.org:8001",
+		"region": "us-west-2"
+	},
 	"image_services": {
+		"Midjourney": [
+			"midjourney-v6",
+			"midjourney-v5"
+		],
 		"OpenAI": [
 			"gpt-image-1",
 			"dall-e-3"
@@ -61,10 +59,22 @@
 		"Stability": [
 			"stable-diffusion-xl",
 			"stable-diffusion-3"
-		],
-		"Midjourney": [
-			"midjourney-v6",
-			"midjourney-v5"
 		]
+	},
+	"tables": {
+		"aiPrompts": "AIPrompts",
+		"projects": "Projects",
+		"sceneLayout": "SceneLayout",
+		"usageTracking": "UsageTracking"
+	},
+	"toolbar_layout": {
+		"controls_height": 1354.0,
+		"controls_offset_x": -2318.0,
+		"controls_offset_y": -148.0,
+		"gap": 10.0,
+		"hierarchy_height": 1082.0,
+		"hierarchy_offset_x": 10.0,
+		"hierarchy_offset_y": 0.0,
+		"panel_width": 376.0
 	}
 }

@@ -117,21 +117,94 @@ func _on_window_resized() -> void:
 
 
 func _position_toolbars() -> void:
-	"""Position Project and Controls toolbars at the center of viewport"""
-	var center_x = viewport_offset.x + project_viewport_size.x / 2.0
-	var center_y = viewport_offset.y + project_viewport_size.y / 2.0
+	"""Position Project and Controls toolbars to the right of viewport"""
+	var right_edge = viewport_offset.x + project_viewport_size.x
+	var top_y = viewport_offset.y
 
-	# Project toolbar on the left, Controls on the right
-	var gap = 30.0  # Gap between panels
+	# Load saved toolbar layout from config.json
+	var toolbar_config = _load_toolbar_layout()
 
+	# Default values (fallback if not in config)
+	var gap = toolbar_config.get("gap", 10.0)
+	var panel_width = toolbar_config.get("panel_width", 170.0)
+	var hierarchy_height = toolbar_config.get("hierarchy_height", 400.0)
+	var controls_height = toolbar_config.get("controls_height", 180.0)
+	var hierarchy_offset_x = toolbar_config.get("hierarchy_offset_x", gap)
+	var hierarchy_offset_y = toolbar_config.get("hierarchy_offset_y", 0.0)
+	var controls_offset_x = toolbar_config.get("controls_offset_x", gap)
+	var controls_offset_y = toolbar_config.get("controls_offset_y", hierarchy_height + gap)
+
+	# Position and size scene_hierarchy (Projects panel)
 	if scene_hierarchy:
-		var panel_width = scene_hierarchy.size.x if scene_hierarchy.size.x > 0 else 200.0
-		var panel_height = scene_hierarchy.size.y if scene_hierarchy.size.y > 0 else 300.0
-		scene_hierarchy.global_position = Vector2(center_x - panel_width - gap / 2.0, center_y - panel_height / 2.0)
+		scene_hierarchy.global_position = Vector2(right_edge + hierarchy_offset_x, top_y + hierarchy_offset_y)
+		scene_hierarchy.size = Vector2(panel_width, hierarchy_height)
 
+	# Position and size controls_panel below scene_hierarchy
 	if controls_panel:
-		var panel_height = controls_panel.size.y if controls_panel.size.y > 0 else 300.0
-		controls_panel.global_position = Vector2(center_x + gap / 2.0, center_y - panel_height / 2.0)
+		controls_panel.global_position = Vector2(right_edge + controls_offset_x, top_y + controls_offset_y)
+		controls_panel.size = Vector2(panel_width, controls_height)
+
+
+func _load_toolbar_layout() -> Dictionary:
+	"""Load toolbar layout from config.json"""
+	var config_path = "res://config.json"
+	if not FileAccess.file_exists(config_path):
+		return {}
+
+	var file = FileAccess.open(config_path, FileAccess.READ)
+	if not file:
+		return {}
+
+	var json_text = file.get_as_text()
+	file.close()
+
+	var config = JSON.parse_string(json_text)
+	if config and config.has("toolbar_layout"):
+		return config["toolbar_layout"]
+	return {}
+
+
+func _on_save_toolbar_layout() -> void:
+	"""Save current toolbar positions and sizes to config.json"""
+	var config_path = "res://config.json"
+
+	# Load existing config
+	var config = {}
+	if FileAccess.file_exists(config_path):
+		var file = FileAccess.open(config_path, FileAccess.READ)
+		if file:
+			var json_text = file.get_as_text()
+			file.close()
+			config = JSON.parse_string(json_text)
+			if config == null:
+				config = {}
+
+	# Calculate offsets relative to viewport
+	var right_edge = viewport_offset.x + project_viewport_size.x
+	var top_y = viewport_offset.y
+
+	# Save current toolbar layout
+	var layout = {
+		"panel_width": scene_hierarchy.size.x if scene_hierarchy else 170.0,
+		"hierarchy_height": scene_hierarchy.size.y if scene_hierarchy else 400.0,
+		"controls_height": controls_panel.size.y if controls_panel else 180.0,
+		"hierarchy_offset_x": (scene_hierarchy.global_position.x - right_edge) if scene_hierarchy else 10.0,
+		"hierarchy_offset_y": (scene_hierarchy.global_position.y - top_y) if scene_hierarchy else 0.0,
+		"controls_offset_x": (controls_panel.global_position.x - right_edge) if controls_panel else 10.0,
+		"controls_offset_y": (controls_panel.global_position.y - top_y) if controls_panel else 410.0,
+		"gap": 10.0
+	}
+
+	config["toolbar_layout"] = layout
+
+	# Write back to config.json
+	var file = FileAccess.open(config_path, FileAccess.WRITE)
+	if file:
+		file.store_string(JSON.stringify(config, "\t"))
+		file.close()
+		print("Toolbar layout saved to config.json")
+	else:
+		print("Failed to save toolbar layout")
 
 
 func _create_scene_hierarchy() -> void:
@@ -150,6 +223,7 @@ func _create_scene_hierarchy() -> void:
 	scene_hierarchy.project_selected.connect(_on_project_selected)
 	scene_hierarchy.save_requested.connect(_on_save_requested)
 	scene_hierarchy.load_requested.connect(_on_load_requested)
+	scene_hierarchy.save_toolbar_layout_requested.connect(_on_save_toolbar_layout)
 
 	# Initialize with empty root
 	_initialize_scene_root()

@@ -11,6 +11,7 @@ signal properties_requested(node_id: int, node_data: Dictionary)
 signal project_selected(project_data: Dictionary)
 signal save_requested
 signal load_requested
+signal save_toolbar_layout_requested
 
 var dragging := false
 var drag_offset := Vector2.ZERO
@@ -888,6 +889,8 @@ func _create_title_bar_context_menu() -> void:
 	title_bar_context_menu.add_item("Game Design...", 0)
 	title_bar_context_menu.add_separator()
 	title_bar_context_menu.add_item("Push Design", 1)
+	title_bar_context_menu.add_separator()
+	title_bar_context_menu.add_item("Save Toolbar Layout", 2)
 	title_bar_context_menu.id_pressed.connect(_on_title_bar_menu_action)
 	add_child(title_bar_context_menu)
 
@@ -1039,6 +1042,8 @@ func _on_title_bar_menu_action(id: int) -> void:
 			game_design_dialog.popup_centered()
 		1:  # Push Design
 			_request_project_sync()
+		2:  # Save Toolbar Layout
+			save_toolbar_layout_requested.emit()
 
 
 func _request_project_sync() -> void:
