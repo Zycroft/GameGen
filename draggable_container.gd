@@ -830,6 +830,12 @@ func add_widget_from_data(widget_type: String, properties: Dictionary) -> Contro
 		if properties.has("selected"):
 			widget.selected = properties["selected"]
 
+	# Restore size flags (for controlling expansion in containers)
+	if properties.has("sizeFlagsHorizontal"):
+		widget.size_flags_horizontal = int(properties["sizeFlagsHorizontal"])
+	if properties.has("sizeFlagsVertical"):
+		widget.size_flags_vertical = int(properties["sizeFlagsVertical"])
+
 	return widget
 
 
