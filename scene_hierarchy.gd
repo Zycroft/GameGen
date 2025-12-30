@@ -1,3 +1,5 @@
+# Scene hierarchy panel - displays tree view of nodes, handles project selection/creation,
+# provides context menus, and contains Game Design dialog for AI-assisted design.
 class_name SceneHierarchy
 extends Panel
 
@@ -45,6 +47,8 @@ const NODE_CATEGORIES := {
 }
 
 const NODE_COLORS := {
+	# Project
+	"Project": Color(1.0, 0.8, 0.2),
 	# Scene
 	"Scene": Color(0.9, 0.7, 0.2),
 	# 2D Nodes
@@ -88,6 +92,7 @@ const NODE_COLORS := {
 }
 
 const NODE_ICONS := {
+	"Project": "PRJ",
 	"Scene": "SCN",
 	"Node2D": "2D",
 	"Sprite2D": "SPR",
@@ -137,6 +142,20 @@ const NODE_ICONS := {
 var context_menu: PopupMenu
 var add_child_popup: PopupMenu
 var context_node_id: int = -1
+
+# Title bar context menu
+var title_bar_context_menu: PopupMenu
+var game_design_dialog: Window
+var game_design_concept_edit: TextEdit
+var game_design_service_dropdown: OptionButton
+var game_design_model_dropdown: OptionButton
+var game_design_status_label: Label
+var game_design_usage_label: Label
+var game_design_response_edit: TextEdit
+var game_design_generate_btn: Button
+var game_design_prompt_id: String = ""
+var game_design_status_timer: Timer
+var game_design_dynamodb_request: HTTPRequest
 
 # Project management
 var http_request: HTTPRequest
@@ -197,6 +216,12 @@ func _ready() -> void:
 
 	# Create new project dialog
 	_create_new_project_dialog()
+
+	# Create title bar context menu
+	_create_title_bar_context_menu()
+
+	# Create game design dialog
+	_create_game_design_dialog()
 
 	# Create HTTPRequest for Ollama API calls
 	claude_http_request = HTTPRequest.new()
@@ -318,9 +343,16 @@ func _on_tree_gui_input(event: InputEvent) -> void:
 		if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			var item = tree.get_item_at_position(event.position)
 			if item:
-				context_node_id = item.get_meta("node_id", -1)
-				context_menu.position = Vector2i(get_global_mouse_position())
-				context_menu.popup()
+				var node_type = item.get_meta("node_type", "")
+				if node_type == "Project":
+					# Show Game Design menu for root [PRJ] node
+					title_bar_context_menu.position = Vector2i(get_global_mouse_position())
+					title_bar_context_menu.popup()
+				else:
+					# Show regular context menu for other nodes
+					context_node_id = item.get_meta("node_id", -1)
+					context_menu.position = Vector2i(get_global_mouse_position())
+					context_menu.popup()
 
 
 func _on_tree_item_selected() -> void:
@@ -708,6 +740,11 @@ func _show_projects_dialog() -> void:
 		var project_name = project.get("Name", "Unnamed Project")
 		project_item_list.add_item(project_name)
 
+	# Default to first project if available
+	if project_item_list.item_count > 0:
+		project_item_list.select(0)
+		selected_project_index = 0
+
 	projects_dialog.popup_centered()
 
 
@@ -844,6 +881,562 @@ func _create_new_project_dialog() -> void:
 	file_dialog.size = Vector2i(700, 500)
 	file_dialog.dir_selected.connect(_on_directory_selected)
 	add_child(file_dialog)
+
+
+func _create_title_bar_context_menu() -> void:
+	title_bar_context_menu = PopupMenu.new()
+	title_bar_context_menu.add_item("Game Design...", 0)
+	title_bar_context_menu.add_separator()
+	title_bar_context_menu.add_item("Sync to Godot...", 1)
+	title_bar_context_menu.id_pressed.connect(_on_title_bar_menu_action)
+	add_child(title_bar_context_menu)
+
+
+func _create_game_design_dialog() -> void:
+	game_design_dialog = Window.new()
+	game_design_dialog.title = "Game Design"
+	game_design_dialog.size = Vector2i(800, 600)
+	game_design_dialog.transient = true
+	game_design_dialog.exclusive = true
+	game_design_dialog.visible = false
+	add_child(game_design_dialog)
+
+	var main_vbox := VBoxContainer.new()
+	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_vbox.add_theme_constant_override("separation", 10)
+	main_vbox.offset_left = 20
+	main_vbox.offset_top = 20
+	main_vbox.offset_right = -20
+	main_vbox.offset_bottom = -20
+	game_design_dialog.add_child(main_vbox)
+
+	# Game Concept section
+	var concept_label := Label.new()
+	concept_label.text = "Game Concept:"
+	concept_label.add_theme_font_size_override("font_size", 16)
+	main_vbox.add_child(concept_label)
+
+	game_design_concept_edit = TextEdit.new()
+	game_design_concept_edit.placeholder_text = "Describe your game in 2-3 sentences. What makes it unique?"
+	game_design_concept_edit.custom_minimum_size.y = 80
+	game_design_concept_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	main_vbox.add_child(game_design_concept_edit)
+
+	# Generate button row
+	var generate_hbox := HBoxContainer.new()
+	generate_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(generate_hbox)
+
+	game_design_generate_btn = Button.new()
+	game_design_generate_btn.text = "Generate Design"
+	game_design_generate_btn.custom_minimum_size = Vector2(140, 35)
+	game_design_generate_btn.pressed.connect(_on_game_design_generate_pressed)
+	generate_hbox.add_child(game_design_generate_btn)
+
+	# Service and Model selection
+	var service_label := Label.new()
+	service_label.text = "Service:"
+	generate_hbox.add_child(service_label)
+
+	game_design_service_dropdown = OptionButton.new()
+	if ai_services.is_empty():
+		game_design_service_dropdown.add_item("Zycroft")
+		game_design_service_dropdown.add_item("OpenAI")
+		game_design_service_dropdown.add_item("Claude")
+	else:
+		for service_name in ai_services.keys():
+			game_design_service_dropdown.add_item(service_name)
+	game_design_service_dropdown.custom_minimum_size.x = 120
+	game_design_service_dropdown.item_selected.connect(_on_game_design_service_changed)
+	generate_hbox.add_child(game_design_service_dropdown)
+
+	var model_label := Label.new()
+	model_label.text = "Model:"
+	generate_hbox.add_child(model_label)
+
+	game_design_model_dropdown = OptionButton.new()
+	game_design_model_dropdown.custom_minimum_size.x = 200
+	generate_hbox.add_child(game_design_model_dropdown)
+
+	# Initialize models for first service
+	_update_game_design_models(0)
+
+	# Status and Usage row
+	var status_hbox := HBoxContainer.new()
+	status_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(status_hbox)
+
+	var status_title := Label.new()
+	status_title.text = "Status:"
+	status_hbox.add_child(status_title)
+
+	game_design_status_label = Label.new()
+	game_design_status_label.text = "Ready"
+	game_design_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	status_hbox.add_child(game_design_status_label)
+
+	# Spacer to push usage label to right
+	var usage_spacer := Control.new()
+	usage_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_hbox.add_child(usage_spacer)
+
+	game_design_usage_label = Label.new()
+	game_design_usage_label.text = ""
+	game_design_usage_label.add_theme_color_override("font_color", Color(0.6, 0.8, 0.6))
+	status_hbox.add_child(game_design_usage_label)
+
+	# AI Response section
+	var response_label := Label.new()
+	response_label.text = "AI Response:"
+	response_label.add_theme_font_size_override("font_size", 16)
+	main_vbox.add_child(response_label)
+
+	game_design_response_edit = TextEdit.new()
+	game_design_response_edit.placeholder_text = "AI generated game design will appear here..."
+	game_design_response_edit.custom_minimum_size.y = 200
+	game_design_response_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	game_design_response_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	main_vbox.add_child(game_design_response_edit)
+
+	# Button row
+	var button_container := HBoxContainer.new()
+	button_container.alignment = BoxContainer.ALIGNMENT_END
+	button_container.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(button_container)
+
+	var design_save_button := Button.new()
+	design_save_button.text = "Save"
+	design_save_button.custom_minimum_size = Vector2(100, 35)
+	design_save_button.pressed.connect(_on_game_design_save_pressed)
+	button_container.add_child(design_save_button)
+
+	var design_close_button := Button.new()
+	design_close_button.text = "Close"
+	design_close_button.custom_minimum_size = Vector2(100, 35)
+	design_close_button.pressed.connect(_on_game_design_close)
+	button_container.add_child(design_close_button)
+
+	game_design_dialog.close_requested.connect(_on_game_design_close)
+
+	# Create HTTPRequest for Game Design DynamoDB calls
+	game_design_dynamodb_request = HTTPRequest.new()
+	game_design_dynamodb_request.timeout = 30
+	add_child(game_design_dynamodb_request)
+	game_design_dynamodb_request.request_completed.connect(_on_game_design_dynamodb_completed)
+
+	# Create status refresh timer
+	game_design_status_timer = Timer.new()
+	game_design_status_timer.wait_time = 2.0
+	game_design_status_timer.one_shot = false
+	game_design_status_timer.timeout.connect(_on_game_design_status_timeout)
+	add_child(game_design_status_timer)
+
+
+func _on_title_bar_menu_action(id: int) -> void:
+	match id:
+		0:  # Game Design
+			_load_game_design_from_dynamodb()
+			game_design_dialog.popup_centered()
+		1:  # Sync to Godot
+			_request_project_sync()
+
+
+func _request_project_sync() -> void:
+	if current_project_id < 0:
+		print("PROJECT_SYNC: No project selected")
+		return
+	print("PROJECT_SYNC_REQUEST: project_id=%d" % current_project_id)
+	print("Run '/project-sync' in Claude Code to sync this project to Godot")
+
+
+func _on_game_design_close() -> void:
+	game_design_dialog.hide()
+
+
+func _load_game_design_from_dynamodb() -> void:
+	if dynamodb_endpoint.is_empty():
+		return
+
+	if current_project_id < 0:
+		return
+
+	var project_object_id = str(current_project_id) + "_0"
+
+	# Query for game design prompts (promptID starts with "gd_")
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"KeyConditionExpression": "projectObjectID = :poid AND begins_with(promptID, :prefix)",
+		"ExpressionAttributeValues": {
+			":poid": {"S": project_object_id},
+			":prefix": {"S": "gd_"}
+		}
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.Query",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	# Create a one-time HTTPRequest for loading
+	var load_request = HTTPRequest.new()
+	add_child(load_request)
+	load_request.request_completed.connect(
+		func(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
+			_handle_game_design_load_response(result, response_code, body)
+			load_request.queue_free()
+	)
+	load_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
+
+
+func _handle_game_design_load_response(result: int, response_code: int, body: PackedByteArray) -> void:
+	var response_text = body.get_string_from_utf8()
+	print("Game design load response: ", response_code, " result: ", result)
+
+	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
+		print("Failed to load game design: ", response_text.left(500))
+		return
+
+	var json = JSON.parse_string(response_text)
+
+	if not json or not json.has("Items") or json["Items"].size() == 0:
+		# No saved game design, reset fields
+		game_design_prompt_id = ""
+		game_design_concept_edit.text = ""
+		game_design_response_edit.text = ""
+		game_design_status_label.text = "Ready"
+		game_design_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+		return
+
+	# Find the most recent game design (highest createdAt)
+	var items = json["Items"]
+	var latest_item = items[0]
+	var latest_time = float(latest_item.get("createdAt", {}).get("N", "0"))
+
+	for item in items:
+		var item_time = float(item.get("createdAt", {}).get("N", "0"))
+		if item_time > latest_time:
+			latest_time = item_time
+			latest_item = item
+
+	# Populate fields with the loaded data
+	game_design_prompt_id = latest_item.get("promptID", {}).get("S", "")
+	game_design_concept_edit.text = latest_item.get("content", {}).get("S", "")
+	game_design_response_edit.text = latest_item.get("response", {}).get("S", "")
+
+	# Set service dropdown
+	var saved_service = latest_item.get("service", {}).get("S", "")
+	if not saved_service.is_empty():
+		for i in range(game_design_service_dropdown.item_count):
+			if game_design_service_dropdown.get_item_text(i) == saved_service:
+				game_design_service_dropdown.selected = i
+				_update_game_design_models(i)
+				break
+
+	# Set model dropdown
+	var saved_model = latest_item.get("model", {}).get("S", "")
+	if not saved_model.is_empty():
+		for i in range(game_design_model_dropdown.item_count):
+			if game_design_model_dropdown.get_item_text(i) == saved_model:
+				game_design_model_dropdown.selected = i
+				break
+
+	# Update status
+	var status = latest_item.get("status", {}).get("S", "idle")
+	match status:
+		"idle":
+			game_design_status_label.text = "Saved"
+			game_design_status_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.2))
+		"completed":
+			game_design_status_label.text = "Completed"
+			game_design_status_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.2))
+		_:
+			game_design_status_label.text = "Ready"
+			game_design_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+
+	print("Loaded game design: ", game_design_prompt_id)
+
+
+func _on_game_design_save_pressed() -> void:
+	var concept = game_design_concept_edit.text.strip_edges()
+	if concept.is_empty():
+		game_design_response_edit.text = "Please enter a game concept to save."
+		return
+
+	if dynamodb_endpoint.is_empty():
+		game_design_response_edit.text = "Error: DynamoDB endpoint not configured."
+		return
+
+	var selected_service = game_design_service_dropdown.get_item_text(game_design_service_dropdown.selected)
+	var selected_model = game_design_model_dropdown.get_item_text(game_design_model_dropdown.selected)
+	var response_text = game_design_response_edit.text.strip_edges()
+
+	# Generate prompt ID if new
+	if game_design_prompt_id.is_empty():
+		game_design_prompt_id = "gd_" + str(Time.get_unix_time_from_system())
+
+	var project_object_id = str(current_project_id) + "_0"
+	var system_prompt = "You are a game design expert. Based on the game concept provided, create a comprehensive game design document that includes: 1) Game Overview, 2) Core Gameplay Mechanics, 3) Player Progression, 4) Art Style and Visual Direction, 5) Target Audience, 6) Key Features, and 7) Technical Considerations. Be specific and actionable."
+
+	# Save to DynamoDB with status "idle" (saved but not generating)
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"Item": {
+			"projectObjectID": {"S": project_object_id},
+			"promptID": {"S": game_design_prompt_id},
+			"title": {"S": "Game Design"},
+			"content": {"S": concept},
+			"systemPrompt": {"S": system_prompt},
+			"service": {"S": selected_service},
+			"model": {"S": selected_model},
+			"status": {"S": "idle"},
+			"response": {"S": response_text},
+			"createdAt": {"N": str(Time.get_unix_time_from_system())}
+		}
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.PutItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	# Update status
+	game_design_status_label.text = "Saving..."
+	game_design_status_label.add_theme_color_override("font_color", Color(0.2, 0.6, 1.0))
+
+	# Create a one-time HTTPRequest for saving
+	var save_request = HTTPRequest.new()
+	add_child(save_request)
+	save_request.request_completed.connect(
+		func(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
+			_handle_game_design_save_response(result, response_code, body)
+			save_request.queue_free()
+	)
+	save_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
+	print("Saving game design: ", game_design_prompt_id)
+
+
+func _handle_game_design_save_response(result: int, response_code: int, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS:
+		game_design_status_label.text = "Save Failed"
+		game_design_status_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		return
+
+	if response_code == 200:
+		game_design_status_label.text = "Saved"
+		game_design_status_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.2))
+		print("Game design saved successfully")
+	else:
+		var response_text = body.get_string_from_utf8()
+		game_design_status_label.text = "Save Failed"
+		game_design_status_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		print("Failed to save game design: ", response_text.left(200))
+
+
+func _update_game_design_models(service_index: int) -> void:
+	game_design_model_dropdown.clear()
+
+	if ai_services.is_empty():
+		# Fallback defaults if no config
+		var default_models = {
+			0: ["llama3.2:3b", "qwen2.5:7b-instruct", "mistral:7b"],
+			1: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+			2: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-haiku-20241022"]
+		}
+		if default_models.has(service_index):
+			for model in default_models[service_index]:
+				game_design_model_dropdown.add_item(model)
+	else:
+		var service_name = game_design_service_dropdown.get_item_text(service_index)
+		if ai_services.has(service_name):
+			for model in ai_services[service_name]:
+				game_design_model_dropdown.add_item(model)
+
+
+func _on_game_design_service_changed(index: int) -> void:
+	_update_game_design_models(index)
+	# Update usage display for new service
+	var selected_service = game_design_service_dropdown.get_item_text(index)
+	_update_game_design_usage(selected_service)
+
+
+func _update_game_design_usage(_service: String) -> void:
+	# For now, just show ready status - can add usage tracking later
+	game_design_usage_label.text = ""
+
+
+func _on_game_design_generate_pressed() -> void:
+	var concept = game_design_concept_edit.text.strip_edges()
+	if concept.is_empty():
+		game_design_response_edit.text = "Please enter a game concept first."
+		return
+
+	if dynamodb_endpoint.is_empty():
+		game_design_response_edit.text = "Error: DynamoDB endpoint not configured."
+		return
+
+	var selected_service = game_design_service_dropdown.get_item_text(game_design_service_dropdown.selected)
+	var selected_model = game_design_model_dropdown.get_item_text(game_design_model_dropdown.selected)
+
+	# Build the prompt for game design generation
+	var system_prompt = "You are a game design expert. Based on the game concept provided, create a comprehensive game design document that includes: 1) Game Overview, 2) Core Gameplay Mechanics, 3) Player Progression, 4) Art Style and Visual Direction, 5) Target Audience, 6) Key Features, and 7) Technical Considerations. Be specific and actionable."
+
+	# Generate or reuse prompt ID
+	if game_design_prompt_id.is_empty():
+		game_design_prompt_id = "gd_" + str(Time.get_unix_time_from_system())
+
+	# Use project ID 0 and object ID 0 for game design documents
+	var project_object_id = str(current_project_id) + "_0"
+
+	# Save/update the prompt in DynamoDB with status "generate"
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"Item": {
+			"projectObjectID": {"S": project_object_id},
+			"promptID": {"S": game_design_prompt_id},
+			"title": {"S": "Game Design"},
+			"content": {"S": concept},
+			"systemPrompt": {"S": system_prompt},
+			"service": {"S": selected_service},
+			"model": {"S": selected_model},
+			"status": {"S": "generate"},
+			"response": {"S": ""},
+			"createdAt": {"N": str(Time.get_unix_time_from_system())}
+		}
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.PutItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	# Update status
+	game_design_status_label.text = "Queued..."
+	game_design_status_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
+	game_design_generate_btn.disabled = true
+	game_design_response_edit.text = "Generating game design..."
+
+	game_design_dynamodb_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
+	print("Submitting game design prompt: ", game_design_prompt_id)
+
+
+func _on_game_design_dynamodb_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS:
+		game_design_response_edit.text = "Error: Failed to connect to DynamoDB"
+		_reset_game_design_status()
+		return
+
+	var response_text = body.get_string_from_utf8()
+
+	if response_code == 200:
+		# Successfully saved - start polling for status
+		print("Game design prompt saved, starting status refresh")
+		_start_game_design_status_refresh()
+	else:
+		game_design_response_edit.text = "Error saving to DynamoDB: " + response_text.left(200)
+		_reset_game_design_status()
+
+
+func _reset_game_design_status() -> void:
+	game_design_status_label.text = "Ready"
+	game_design_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	game_design_generate_btn.disabled = false
+
+
+func _start_game_design_status_refresh() -> void:
+	if game_design_status_timer and not game_design_status_timer.is_stopped():
+		return
+	if game_design_status_timer:
+		game_design_status_timer.start()
+		print("Started game design status refresh timer")
+
+
+func _stop_game_design_status_refresh() -> void:
+	if game_design_status_timer and not game_design_status_timer.is_stopped():
+		game_design_status_timer.stop()
+		print("Stopped game design status refresh timer")
+
+
+func _on_game_design_status_timeout() -> void:
+	if game_design_prompt_id.is_empty():
+		_stop_game_design_status_refresh()
+		return
+	_fetch_game_design_status()
+
+
+func _fetch_game_design_status() -> void:
+	if dynamodb_endpoint.is_empty():
+		return
+
+	var project_object_id = str(current_project_id) + "_0"
+
+	var request_body = JSON.stringify({
+		"TableName": ai_prompts_table,
+		"Key": {
+			"projectObjectID": {"S": project_object_id},
+			"promptID": {"S": game_design_prompt_id}
+		}
+	})
+
+	var headers = PackedStringArray([
+		"Content-Type: application/x-amz-json-1.0",
+		"X-Amz-Target: DynamoDB_20120810.GetItem",
+		"Authorization: AWS4-HMAC-SHA256 Credential=placeholder/20250101/us-east-1/dynamodb/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=placeholder",
+		"X-Amz-Date: 20250101T000000Z"
+	])
+
+	# Create a one-time HTTPRequest for status check
+	var status_request = HTTPRequest.new()
+	add_child(status_request)
+	status_request.request_completed.connect(
+		func(req_result: int, req_response_code: int, _req_headers: PackedStringArray, req_body: PackedByteArray):
+			_handle_game_design_status_response(req_result, req_response_code, req_body)
+			status_request.queue_free()
+	)
+	status_request.request(dynamodb_endpoint, headers, HTTPClient.METHOD_POST, request_body)
+
+
+func _handle_game_design_status_response(result: int, response_code: int, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
+		return
+
+	var response_text = body.get_string_from_utf8()
+	var json = JSON.parse_string(response_text)
+
+	if not json or not json.has("Item"):
+		return
+
+	var item = json["Item"]
+	var status = item.get("status", {}).get("S", "")
+	var response = item.get("response", {}).get("S", "")
+
+	# Update status display
+	match status:
+		"generate":
+			game_design_status_label.text = "Queued..."
+			game_design_status_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
+		"processing":
+			game_design_status_label.text = "Processing..."
+			game_design_status_label.add_theme_color_override("font_color", Color(0.2, 0.6, 1.0))
+		"completed":
+			game_design_status_label.text = "Completed"
+			game_design_status_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.2))
+			game_design_generate_btn.disabled = false
+			_stop_game_design_status_refresh()
+			if not response.is_empty():
+				game_design_response_edit.text = response
+		"error":
+			game_design_status_label.text = "Error"
+			game_design_status_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+			game_design_generate_btn.disabled = false
+			_stop_game_design_status_refresh()
+			if not response.is_empty():
+				game_design_response_edit.text = "Error: " + response
 
 
 func _on_new_button_pressed() -> void:
