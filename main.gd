@@ -262,7 +262,40 @@ func _on_hierarchy_node_selected(node_data: Dictionary) -> void:
 	if selected_node_data.is_empty():
 		return
 
-	# Clear all visual nodes
+	var node_type = selected_node_data.get("type", "")
+
+	# For UI widgets, find and display their parent container instead
+	if node_type in SceneHierarchyScript.NODE_CATEGORIES.get("UI", []):
+		var parent_id = _find_parent_container_id(node_id)
+		if parent_id > 0:
+			# Check if parent container exists visually
+			if all_nodes.has(parent_id):
+				var parent_node = all_nodes[parent_id]
+				if parent_node is DraggableContainer and is_instance_valid(parent_node):
+					_highlight_container(parent_node)
+					return
+			# Parent not visible - display parent container instead
+			var parent_data = _find_node_data(parent_id)
+			if not parent_data.is_empty():
+				_clear_all_visual_nodes()
+				_create_nodes_from_tree(parent_data, null)
+				if all_nodes.has(parent_id):
+					var container = all_nodes[parent_id]
+					if container is DraggableContainer:
+						_highlight_container(container)
+				return
+
+	# Check if this node already exists visually - if so, just highlight it
+	if all_nodes.has(node_id):
+		var existing_node = all_nodes[node_id]
+		if existing_node is DraggableContainer and is_instance_valid(existing_node):
+			_highlight_container(existing_node)
+			return
+		elif existing_node is Node2D and is_instance_valid(existing_node):
+			_highlight_node2d(existing_node)
+			return
+
+	# Node not visible - clear and recreate from selected node
 	_clear_all_visual_nodes()
 
 	# Recreate only the selected node and its descendants
@@ -390,6 +423,35 @@ func _find_node_in_tree(current: Dictionary, target_id: int) -> Dictionary:
 		if widget.get("id") == target_id:
 			return widget
 	return {}
+
+
+func _find_parent_container_id(target_id: int) -> int:
+	"""Find the parent container ID for a given node ID in the scene tree"""
+	return _find_parent_in_tree(scene_root, target_id, -1)
+
+
+func _find_parent_in_tree(current: Dictionary, target_id: int, parent_container_id: int) -> int:
+	var current_id = current.get("id", -1)
+	var current_type = current.get("type", "")
+
+	# Update parent_container_id if current is a container type
+	if current_type in SceneHierarchyScript.NODE_CATEGORIES.get("Control", []):
+		parent_container_id = current_id
+
+	# Check children
+	for child in current.get("children", []):
+		if child.get("id") == target_id:
+			return parent_container_id
+		var found = _find_parent_in_tree(child, target_id, parent_container_id)
+		if found > 0:
+			return found
+
+	# Check widgets
+	for widget in current.get("widgets", []):
+		if widget.get("id") == target_id:
+			return parent_container_id
+
+	return -1
 
 
 func _on_hierarchy_properties_requested(node_id: int, node_data: Dictionary) -> void:
@@ -952,8 +1014,11 @@ func _create_standalone_widget(widget_type: String, props: Dictionary, node_name
 	var size_y = props.get("sizeY", props.get("minSizeY", 64))
 	container.add_widget_from_data(widget_type, props)
 
-	# Set container size based on widget (padding: 30 for borders, 50 for title bar + bottom)
-	container.size = Vector2(size_x + 30, size_y + 50)
+	# Hide chrome for widgets - show just the widget content without title bar
+	container.hide_chrome()
+
+	# Set container size based on widget (minimal padding since chrome is hidden)
+	container.size = Vector2(size_x + 8, size_y + 8)
 
 	return container
 
@@ -1634,6 +1699,15 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		# Store the data but don't create a visual container
 		all_nodes[node_id] = node_data
 		# Process children - they will be top-level
+		for child in node_data.get("children", []):
+			_create_nodes_from_tree(child, null)
+		return
+
+	# Handle Window/Dialog types - they're popups, treat as virtual containers
+	if node_type in ["Window", "AcceptDialog", "ConfirmationDialog", "Popup", "PopupMenu", "PopupPanel"]:
+		# Store the data but don't create inline visual - these are modal popups
+		all_nodes[node_id] = node_data
+		# Process children - they render inside the dialog
 		for child in node_data.get("children", []):
 			_create_nodes_from_tree(child, null)
 		return

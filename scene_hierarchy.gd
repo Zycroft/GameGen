@@ -89,7 +89,17 @@ const NODE_COLORS := {
 	# Animation
 	"AnimationPlayer": Color(0.9, 0.6, 0.3),
 	# Audio
-	"AudioStreamPlayer": Color(0.3, 0.7, 0.9)
+	"AudioStreamPlayer": Color(0.3, 0.7, 0.9),
+	# Windows/Dialogs
+	"Window": Color(0.8, 0.5, 0.8),
+	"AcceptDialog": Color(0.8, 0.5, 0.8),
+	"ConfirmationDialog": Color(0.8, 0.5, 0.8),
+	"Popup": Color(0.7, 0.5, 0.7),
+	"PopupMenu": Color(0.7, 0.5, 0.7),
+	"PopupPanel": Color(0.7, 0.5, 0.7),
+	# Base
+	"Node": Color(0.6, 0.6, 0.6),
+	"SubViewportContainer": Color(0.5, 0.6, 0.7)
 }
 
 const NODE_ICONS := {
@@ -111,6 +121,7 @@ const NODE_ICONS := {
 	"HSplitContainer": "HS",
 	"VSplitContainer": "VS",
 	"TabContainer": "TB",
+	"SubViewportContainer": "SVP",
 	"Button": "BTN",
 	"Label": "LBL",
 	"LineEdit": "INP",
@@ -127,7 +138,14 @@ const NODE_ICONS := {
 	"ColorPickerButton": "CLR",
 	"RichTextLabel": "RTF",
 	"AnimationPlayer": "ANM",
-	"AudioStreamPlayer": "SFX"
+	"AudioStreamPlayer": "SFX",
+	"Window": "WIN",
+	"AcceptDialog": "WIN",
+	"ConfirmationDialog": "WIN",
+	"Popup": "WIN",
+	"PopupMenu": "WIN",
+	"PopupPanel": "WIN",
+	"Node": "NOD"
 }
 
 @onready var title_bar: Panel = $TitleBar
