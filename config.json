@@ -19,7 +19,7 @@
 	},
 	"daily_image_limits": {
 		"default": 3,
-		"OpenAI": 3,
+		"OpenAI": 20,
 		"Stability": 3,
 		"Midjourney": 3
 	},

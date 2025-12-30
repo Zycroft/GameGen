@@ -1195,6 +1195,7 @@ var dynamodb_endpoint: String = ""
 var dynamodb_region: String = ""
 var ai_prompts_table: String = ""
 var current_prompt_id: String = ""
+var current_generated_images: String = ""  # Preserve images when saving
 var is_loading_prompts: bool = false
 
 # Project/Object identification for prompts
@@ -1211,10 +1212,14 @@ func _show_ai_prompts_dialog() -> void:
 
 	# Reset for new prompt
 	current_prompt_id = ""
+	current_generated_images = ""
 	ai_prompt_title_edit.text = ""
 	ai_prompt_content_edit.text = ""
 	ai_response_edit.text = ""
 	_clear_ai_images()
+
+	# Update button states for new prompt
+	_update_regenerate_button_states()
 
 	# Fetch saved prompts from DynamoDB for this specific object
 	_fetch_saved_prompts()
@@ -1223,6 +1228,39 @@ func _show_ai_prompts_dialog() -> void:
 	_check_usage_limits()
 
 	ai_prompts_dialog.popup_centered()
+
+
+func _update_regenerate_button_states() -> void:
+	"""Update Regenerate Prompt and Regenerate Images button states based on current conditions."""
+	var is_saved = not current_prompt_id.is_empty()
+	var has_response = ai_response_edit and not ai_response_edit.text.strip_edges().is_empty()
+
+	# Regenerate Prompt: enabled only if prompt is saved
+	if ai_regenerate_btn:
+		# Don't override if disabled due to daily limit
+		if ai_regenerate_btn.tooltip_text.begins_with("Daily limit"):
+			pass  # Keep disabled due to limit
+		elif not is_saved:
+			ai_regenerate_btn.disabled = true
+			ai_regenerate_btn.tooltip_text = "Save prompt first"
+		else:
+			ai_regenerate_btn.disabled = false
+			ai_regenerate_btn.tooltip_text = ""
+
+	# Regenerate Images: enabled only if prompt is saved AND has AI response
+	if ai_generate_btn:
+		# Don't override if disabled due to daily limit
+		if ai_generate_btn.tooltip_text.begins_with("Daily limit"):
+			pass  # Keep disabled due to limit
+		elif not is_saved:
+			ai_generate_btn.disabled = true
+			ai_generate_btn.tooltip_text = "Save prompt first"
+		elif not has_response:
+			ai_generate_btn.disabled = true
+			ai_generate_btn.tooltip_text = "Generate AI response first"
+		else:
+			ai_generate_btn.disabled = false
+			ai_generate_btn.tooltip_text = ""
 
 
 func _fetch_saved_prompts() -> void:
@@ -1550,7 +1588,10 @@ func _create_ai_prompts_dialog() -> void:
 	var close_btn := Button.new()
 	close_btn.text = "Close"
 	close_btn.custom_minimum_size = Vector2(80, 35)
-	close_btn.pressed.connect(func(): ai_prompts_dialog.hide())
+	close_btn.pressed.connect(func():
+		ai_prompts_dialog.hide()
+		_stop_status_refresh()
+	)
 	button_row.add_child(close_btn)
 
 	ai_prompts_dialog.close_requested.connect(func():
@@ -2012,6 +2053,10 @@ func _on_ai_save_pressed() -> void:
 		"objectID": {"N": str(current_object_id)}
 	}
 
+	# Preserve generated images if they exist
+	if not current_generated_images.is_empty():
+		item["generatedImages"] = {"S": current_generated_images}
+
 	var request_body = JSON.stringify({
 		"TableName": ai_prompts_table,
 		"Item": item
@@ -2054,7 +2099,8 @@ func _on_dynamodb_request_completed(result: int, response_code: int, _headers: P
 		else:
 			# This is a PutItem response (saving)
 			print("AI prompt saved successfully to DynamoDB")
-			ai_prompts_dialog.hide()
+			# Refresh prompts list to show the saved prompt
+			_fetch_saved_prompts()
 	else:
 		print("DynamoDB error: HTTP ", response_code, " - ", response_text)
 		if json and json.has("message"):
@@ -2089,14 +2135,21 @@ func _handle_prompts_loaded(items: Array) -> void:
 		return a_time > b_time
 	)
 
-	# Add to dropdown
-	for prompt_data in saved_prompts_list:
+	# Add to dropdown and find current prompt index
+	var current_index = 0  # Default to "New Prompt"
+	for i in range(saved_prompts_list.size()):
+		var prompt_data = saved_prompts_list[i]
 		var title = prompt_data.get("title", "Untitled")
 		if title.is_empty():
 			title = "Untitled"
 		saved_prompts_dropdown.add_item(title)
+		# Check if this is the currently selected prompt
+		if prompt_data.get("promptID", "") == current_prompt_id:
+			current_index = i + 1  # +1 because "New Prompt" is at index 0
 
 	saved_prompts_dropdown.disabled = false
+	# Restore selection without triggering the signal
+	saved_prompts_dropdown.selected = current_index
 	print("Loaded ", saved_prompts_list.size(), " saved prompts")
 
 
@@ -2106,11 +2159,14 @@ func _on_saved_prompt_selected(index: int) -> void:
 	if index == 0:
 		# "New Prompt" selected - clear fields
 		current_prompt_id = ""
+		current_generated_images = ""
 		ai_prompt_title_edit.text = ""
 		ai_prompt_content_edit.text = ""
 		ai_response_edit.text = ""
+		_clear_ai_images()
 		_update_status_display("new")
 		_update_image_status_display("new")
+		_update_regenerate_button_states()
 		return
 
 	# Get the saved prompt data (index - 1 because first item is "New Prompt")
@@ -2166,6 +2222,7 @@ func _on_saved_prompt_selected(index: int) -> void:
 
 		# Load generated images if any
 		var generated_images_json = prompt_data.get("generatedImages", "")
+		current_generated_images = generated_images_json  # Preserve for saving
 		if not generated_images_json.is_empty():
 			var json = JSON.new()
 			var parse_result = json.parse(generated_images_json)
@@ -2179,6 +2236,9 @@ func _on_saved_prompt_selected(index: int) -> void:
 		# Start refresh if either prompt or image is being processed
 		if status == "generate" or status == "processing" or image_status == "generate" or image_status == "processing":
 			_start_status_refresh()
+
+		# Update button states based on loaded prompt
+		_update_regenerate_button_states()
 
 		print("Loaded prompt: ", current_prompt_id)
 
@@ -2316,6 +2376,8 @@ func _handle_status_response(result: int, response_code: int, body: PackedByteAr
 	if status == "completed":
 		if not response.is_empty() and ai_response_edit:
 			ai_response_edit.text = response
+			# Update button states since we now have a response
+			_update_regenerate_button_states()
 	elif status == "error":
 		var error_msg = item.get("error", {}).get("S", "Unknown error")
 		if ai_response_edit:
@@ -2324,6 +2386,7 @@ func _handle_status_response(result: int, response_code: int, body: PackedByteAr
 	# Handle image status - load images when completed
 	if image_status == "completed":
 		var generated_images_json = item.get("generatedImages", {}).get("S", "")
+		current_generated_images = generated_images_json  # Preserve for saving
 		if not generated_images_json.is_empty():
 			var json_parser = JSON.new()
 			var parse_result = json_parser.parse(generated_images_json)
