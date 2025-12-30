@@ -327,6 +327,19 @@ func get_inner_container() -> Container:
 	return inner_container
 
 
+func hide_chrome() -> void:
+	"""Hide title bar and buttons for a cleaner nested container look"""
+	if title_bar:
+		title_bar.visible = false
+	# Adjust content panel to fill the space
+	if content_panel:
+		content_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+		content_panel.offset_top = 2
+		content_panel.offset_left = 2
+		content_panel.offset_right = -2
+		content_panel.offset_bottom = -2
+
+
 func fill_parent_content() -> void:
 	"""Make this container fill its parent's content area"""
 	if not parent_container:

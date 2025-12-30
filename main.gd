@@ -1629,6 +1629,15 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 			_create_nodes_from_tree(child, null)
 		return
 
+	# Handle virtual/grouping node types that don't need visual containers
+	if node_type in ["Node", "CanvasLayer"]:
+		# Store the data but don't create a visual container
+		all_nodes[node_id] = node_data
+		# Process children - they will be top-level
+		for child in node_data.get("children", []):
+			_create_nodes_from_tree(child, null)
+		return
+
 	# Create node based on type
 	if node_type == "Scene" or node_type in SceneHierarchyScript.NODE_CATEGORIES.get("Scene", []):
 		# Scene is a virtual container - just store the data and process children
@@ -1642,36 +1651,82 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		# Create container - check if parent is a DraggableContainer
 		var container: DraggableContainer
 		var parent_is_container = _parent_node is DraggableContainer
+		var ctrl_node_name = node_data.get("name", "")
 
 		if parent_is_container:
-			# Child container - instantiate and add to parent's content panel
+			# Child container - instantiate and add to parent's inner_container for proper layout
 			container = DraggableContainerScene.instantiate()
-			_parent_node.get_content_panel().add_child(container)
+			var parent_inner = _parent_node.get_inner_container()
+			if parent_inner:
+				parent_inner.add_child(container)
+			else:
+				_parent_node.get_content_panel().add_child(container)
 			container.set_meta("container_id", node_id)
 			container.set_container_type(node_type)
 			container.parent_container = _parent_node
 			container.unlink_button.visible = true
-			container.custom_minimum_size = Vector2.ZERO
+
+			# Infer size flags from node name (matching Godot generator logic)
+			var h_flags = Control.SIZE_EXPAND_FILL
+			var v_flags = Control.SIZE_EXPAND_FILL
+
+			# Toolbars should not expand horizontally (use minimum width)
+			if "Toolbar" in ctrl_node_name:
+				h_flags = Control.SIZE_FILL
+			# MenuBar and StatusBar should not expand vertically
+			if ctrl_node_name in ["MenuBar", "StatusBar"] or "Bar" in ctrl_node_name:
+				v_flags = Control.SIZE_FILL
+
+			container.size_flags_horizontal = h_flags
+			container.size_flags_vertical = v_flags
+
+			# Set minimum size from properties or infer defaults
+			var min_x = props.get("minSizeX", 0.0)
+			var min_y = props.get("minSizeY", 0.0)
+			var size_x = props.get("sizeX", 0.0)
+			var size_y = props.get("sizeY", 0.0)
+
+			# Use sizeX/sizeY as minimum size for bars/toolbars
+			if "Toolbar" in ctrl_node_name and min_x == 0:
+				min_x = size_x if size_x > 0 else 200.0
+			if ctrl_node_name == "MenuBar" and min_y == 0:
+				min_y = size_y if size_y > 0 else 30.0
+			if ctrl_node_name == "StatusBar" and min_y == 0:
+				min_y = size_y if size_y > 0 else 20.0
+
+			if min_x > 0 or min_y > 0:
+				container.custom_minimum_size = Vector2(min_x, min_y)
+			# Hide chrome for nested containers to look like actual Godot layout
+			container.hide_chrome()
 			# Connect signals
 			container.closed.connect(_on_container_closed.bind(container))
 			container.drag_ended.connect(_on_container_drag_ended)
 			container.unlinked.connect(_on_container_unlinked)
 			container.selected.connect(_on_container_selected_in_viewport)
-			# Fill parent after layout is ready
-			container.fill_parent_content.call_deferred()
 		else:
 			# Top-level container
 			container = _create_container(node_type)
-			container.global_position = viewport_offset + Vector2(props.get("positionX", 100), props.get("positionY", 100))
+			var pos_x = props.get("positionX", 0)
+			var pos_y = props.get("positionY", 0)
+			container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 
 		container.set_meta("node_id", node_id)
+
 		# Only set size for top-level containers (child containers fill parent)
 		if not parent_is_container:
-			container.size = Vector2(props.get("sizeX", 200), props.get("sizeY", 150))
+			var size_x = props.get("sizeX", 0)
+			var size_y = props.get("sizeY", 0)
+			# Detect Full Rect: no size, default 200x200 size, or node named "Root"
+			var is_full_rect = (size_x == 0 and size_y == 0) or (size_x == 200 and size_y == 200)
+			if ctrl_node_name == "Root" or ctrl_node_name == "Control":
+				is_full_rect = true
+			if is_full_rect:
+				container.size = project_viewport_size
+			else:
+				container.size = Vector2(size_x if size_x > 0 else project_viewport_size.x, size_y if size_y > 0 else project_viewport_size.y)
 
-		var node_name = node_data.get("name", "")
-		if node_name and node_name != node_type:
-			container.set_container_name(node_name)
+		if ctrl_node_name and ctrl_node_name != node_type:
+			container.set_container_name(ctrl_node_name)
 
 		# Restore layout properties
 		if container.inner_container:
