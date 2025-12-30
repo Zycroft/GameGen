@@ -39,7 +39,7 @@ const NODE_CATEGORIES := {
 	"Control": ["Control", "VBoxContainer", "HBoxContainer", "GridContainer",
 				"FlowContainer", "MarginContainer", "PanelContainer",
 				"CenterContainer", "AspectRatioContainer", "HSplitContainer",
-				"VSplitContainer", "TabContainer"],
+				"VSplitContainer", "TabContainer", "SubViewportContainer"],
 	"UI": ["Button", "Label", "LineEdit", "TextEdit", "CheckBox", "CheckButton",
 		   "OptionButton", "SpinBox", "HSlider", "VSlider", "ProgressBar",
 		   "ColorRect", "TextureRect", "ColorPickerButton", "RichTextLabel"],
