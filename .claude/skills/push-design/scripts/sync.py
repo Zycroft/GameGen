@@ -224,15 +224,15 @@ class ProjectSyncer:
             self._collect_scenes_recursive(child, scenes)
 
     def _ensure_project_file(self, main_scene_path: str) -> None:
-        """Create project.godot if it doesn't exist."""
+        """Create or update project.godot with main scene and display settings."""
         project_file = self.godot_path / "project.godot"
 
         if project_file.exists():
-            # Update main scene path
             import re
             content = project_file.read_text(encoding='utf-8')
             res_path = f'res://{main_scene_path}'
 
+            # Update main scene path
             if 'run/main_scene=' in content:
                 content = re.sub(
                     r'run/main_scene="[^"]*"',
@@ -245,6 +245,17 @@ class ProjectSyncer:
                     f'\\1\nrun/main_scene="{res_path}"',
                     content
                 )
+
+            # Ensure display section with viewport size
+            if '[display]' not in content:
+                content += '\n[display]\n\nwindow/size/viewport_width=1152\nwindow/size/viewport_height=648\n'
+            elif 'window/size/viewport_width' not in content:
+                content = re.sub(
+                    r'\[display\]',
+                    '[display]\n\nwindow/size/viewport_width=1152\nwindow/size/viewport_height=648',
+                    content
+                )
+
             project_file.write_text(content, encoding='utf-8')
             print(f"✓ Updated project.godot: main_scene = {res_path}")
         else:

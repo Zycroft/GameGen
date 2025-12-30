@@ -210,17 +210,43 @@ class TscnGenerator:
                     result['custom_minimum_size'] = {'type': 'Vector2', 'x': min_x, 'y': min_y}
             # Root controls or controls needing full rect use anchors
             elif full_rect or node.name in ('Root', 'ScreenStack', 'DialogHost', 'GameView', 'DialogStack'):
-                result['layout_mode'] = 1
-                result['anchors_preset'] = 15  # PRESET_FULL_RECT
-                result['anchor_right'] = 1.0
-                result['anchor_bottom'] = 1.0
+                parent_is_2d = parent_type in NODE_2D_TYPES if parent_type else False
+                if parent_is_2d:
+                    # Controls under Node2D can't use anchors - anchors only work with Control parents
+                    # Just set explicit size to fill the default viewport (1152x648)
+                    # Don't use anchors - they conflict with explicit size in Godot 4
+                    result['size'] = {'type': 'Vector2', 'x': 1152, 'y': 648}
+                else:
+                    # Parent is Control - use layout_mode 1 (anchors)
+                    result['layout_mode'] = 1
+                    result['anchors_preset'] = 15  # PRESET_FULL_RECT
+                    result['anchor_left'] = 0.0
+                    result['anchor_top'] = 0.0
+                    result['anchor_right'] = 1.0
+                    result['anchor_bottom'] = 1.0
+                    result['grow_horizontal'] = 2
+                    result['grow_vertical'] = 2
+                    result['offset_left'] = 0.0
+                    result['offset_top'] = 0.0
+                    result['offset_right'] = 0.0
+                    result['offset_bottom'] = 0.0
             # ModalBlocker should be full rect but hidden by default
             elif node.name == 'ModalBlocker':
                 result['visible'] = False
-                result['layout_mode'] = 1
+                parent_is_2d = parent_type in NODE_2D_TYPES if parent_type else False
+                if not parent_is_2d:
+                    result['layout_mode'] = 1
                 result['anchors_preset'] = 15  # PRESET_FULL_RECT
+                result['anchor_left'] = 0.0
+                result['anchor_top'] = 0.0
                 result['anchor_right'] = 1.0
                 result['anchor_bottom'] = 1.0
+                result['grow_horizontal'] = 2
+                result['grow_vertical'] = 2
+                result['offset_left'] = 0.0
+                result['offset_top'] = 0.0
+                result['offset_right'] = 0.0
+                result['offset_bottom'] = 0.0
             else:
                 # Regular control with offset positioning
                 if props.position_x != 0:
@@ -387,4 +413,9 @@ config_version=5
 config/name="{project_name}"
 run/main_scene="res://{main_scene}"
 config/features=PackedStringArray("4.5")
+
+[display]
+
+window/size/viewport_width=1152
+window/size/viewport_height=648
 '''
