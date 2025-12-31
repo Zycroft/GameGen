@@ -130,6 +130,18 @@ def sync_project(project_id: int, output_dir: Optional[str] = None, dry_run: boo
         print("Scene layout has no sceneRoot")
         return False
 
+    # Handle "Project" wrapper - use first child as actual scene root
+    if scene_root.get("type") == "Project":
+        children = scene_root.get("children", [])
+        if not children:
+            print("Project node has no children")
+            return False
+        # Use first child as scene root, preserve _scenePath if present
+        scene_path = scene_root.get("_scenePath")
+        scene_root = children[0]
+        if scene_path and "_scenePath" not in scene_root:
+            scene_root["_scenePath"] = scene_path
+
     # Convert to SceneNode tree
     reset_id_counter()
     root_node = SceneNode.from_dict(scene_root)
