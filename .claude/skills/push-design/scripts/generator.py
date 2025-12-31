@@ -292,8 +292,9 @@ class TscnGenerator:
                 result['layout_mode'] = 2
 
                 # Use extracted size flags, or infer from node name/type
-                h_flags = props.extra.get('size_flags_horizontal')
-                v_flags = props.extra.get('size_flags_vertical')
+                # Check both snake_case and camelCase keys (importer uses camelCase)
+                h_flags = props.extra.get('size_flags_horizontal') or props.extra.get('sizeFlagsHorizontal')
+                v_flags = props.extra.get('size_flags_vertical') or props.extra.get('sizeFlagsVertical')
 
                 # Default inference based on common patterns
                 if h_flags is None:
@@ -426,9 +427,14 @@ class TscnGenerator:
         if props.frame is not None:
             result['frame'] = int(props.frame)
 
-        # Extra properties (pass through)
+        # Extra properties (pass through, but filter out properties already handled above)
+        # Skip size_flags (both naming conventions) as they're handled in the container logic
+        skip_keys = {'size_flags_horizontal', 'size_flags_vertical',
+                     'sizeFlagsHorizontal', 'sizeFlagsVertical',
+                     'layout_mode', 'full_rect'}
         for key, value in props.extra.items():
-            result[key] = value
+            if key not in skip_keys:
+                result[key] = value
 
         # Panel style (theme override for PanelContainer)
         if node.type == 'PanelContainer' and node.id in self.node_style_ids:
