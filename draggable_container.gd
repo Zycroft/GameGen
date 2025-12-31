@@ -16,6 +16,12 @@ var inner_container: Container
 var parent_container: DraggableContainer = null
 var is_editing_name := false
 
+# Style properties (for PanelContainer styling in Godot export)
+var style_background_color: String = ""  # Hex color like #RRGGBB
+var style_border_color: String = ""
+var style_border_width: int = 1
+var style_corner_radius: int = 4
+
 # Dragging
 var dragging := false
 var drag_offset := Vector2.ZERO
@@ -257,6 +263,47 @@ func _apply_color(color: Color) -> void:
 	var content_style = StyleBoxFlat.new()
 	content_style.bg_color = color.darkened(0.4)
 	content_panel.add_theme_stylebox_override("panel", content_style)
+
+
+func set_style_properties(bg_color: String, border_color: String, border_width: int, corner_radius: int) -> void:
+	style_background_color = bg_color
+	style_border_color = border_color
+	style_border_width = border_width
+	style_corner_radius = corner_radius
+	_apply_style_properties()
+
+
+func _apply_style_properties() -> void:
+	# Apply visual styling to content_panel based on style properties
+	if style_background_color.is_empty() and style_border_color.is_empty():
+		return
+
+	var style = StyleBoxFlat.new()
+
+	# Background color
+	if not style_background_color.is_empty():
+		style.bg_color = Color(style_background_color)
+	else:
+		style.bg_color = Color(0.18, 0.18, 0.18, 1.0)
+
+	# Border
+	style.border_width_left = style_border_width
+	style.border_width_top = style_border_width
+	style.border_width_right = style_border_width
+	style.border_width_bottom = style_border_width
+
+	if not style_border_color.is_empty():
+		style.border_color = Color(style_border_color)
+	else:
+		style.border_color = Color(0.29, 0.29, 0.29, 1.0)
+
+	# Corners
+	style.corner_radius_top_left = style_corner_radius
+	style.corner_radius_top_right = style_corner_radius
+	style.corner_radius_bottom_right = style_corner_radius
+	style.corner_radius_bottom_left = style_corner_radius
+
+	content_panel.add_theme_stylebox_override("panel", style)
 
 
 func _update_title_display() -> void:
@@ -1134,6 +1181,95 @@ func show_container_properties() -> void:
 				inner_container.alignment = idx
 			)
 			align_hbox.add_child(align_option)
+
+	# Style properties section
+	var style_sep := Label.new()
+	style_sep.text = "— Style —"
+	properties_container.add_child(style_sep)
+
+	# Background color
+	var bg_hbox := HBoxContainer.new()
+	properties_container.add_child(bg_hbox)
+
+	var bg_label := Label.new()
+	bg_label.text = "Background:"
+	bg_label.custom_minimum_size.x = 80
+	bg_hbox.add_child(bg_label)
+
+	var bg_picker := ColorPickerButton.new()
+	bg_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bg_picker.custom_minimum_size.y = 24
+	if not style_background_color.is_empty():
+		bg_picker.color = Color(style_background_color)
+	else:
+		bg_picker.color = Color(0.18, 0.18, 0.18)
+	bg_picker.color_changed.connect(func(new_color: Color):
+		style_background_color = "#" + new_color.to_html(false)
+		_apply_style_properties()
+	)
+	bg_hbox.add_child(bg_picker)
+
+	# Border color
+	var border_hbox := HBoxContainer.new()
+	properties_container.add_child(border_hbox)
+
+	var border_label := Label.new()
+	border_label.text = "Border:"
+	border_label.custom_minimum_size.x = 80
+	border_hbox.add_child(border_label)
+
+	var border_picker := ColorPickerButton.new()
+	border_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	border_picker.custom_minimum_size.y = 24
+	if not style_border_color.is_empty():
+		border_picker.color = Color(style_border_color)
+	else:
+		border_picker.color = Color(0.29, 0.29, 0.29)
+	border_picker.color_changed.connect(func(new_color: Color):
+		style_border_color = "#" + new_color.to_html(false)
+		_apply_style_properties()
+	)
+	border_hbox.add_child(border_picker)
+
+	# Border width
+	var width_hbox := HBoxContainer.new()
+	properties_container.add_child(width_hbox)
+
+	var width_label := Label.new()
+	width_label.text = "Border W:"
+	width_label.custom_minimum_size.x = 80
+	width_hbox.add_child(width_label)
+
+	var width_spin := SpinBox.new()
+	width_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	width_spin.min_value = 0
+	width_spin.max_value = 20
+	width_spin.value = style_border_width
+	width_spin.value_changed.connect(func(new_value: float):
+		style_border_width = int(new_value)
+		_apply_style_properties()
+	)
+	width_hbox.add_child(width_spin)
+
+	# Corner radius
+	var radius_hbox := HBoxContainer.new()
+	properties_container.add_child(radius_hbox)
+
+	var radius_label := Label.new()
+	radius_label.text = "Radius:"
+	radius_label.custom_minimum_size.x = 80
+	radius_hbox.add_child(radius_label)
+
+	var radius_spin := SpinBox.new()
+	radius_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	radius_spin.min_value = 0
+	radius_spin.max_value = 50
+	radius_spin.value = style_corner_radius
+	radius_spin.value_changed.connect(func(new_value: float):
+		style_corner_radius = int(new_value)
+		_apply_style_properties()
+	)
+	radius_hbox.add_child(radius_spin)
 
 	properties_dialog.popup_centered()
 

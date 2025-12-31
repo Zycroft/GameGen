@@ -91,6 +91,12 @@ class NodeProperties:
     vframes: Optional[int] = None
     frame: Optional[int] = None
 
+    # Style properties (PanelContainer styling)
+    background_color: Optional[str] = None  # Hex color like #RRGGBB
+    border_color: Optional[str] = None
+    border_width: Optional[int] = None
+    corner_radius: Optional[int] = None
+
     # Additional raw properties
     extra: Dict[str, Any] = field(default_factory=dict)
 
@@ -158,6 +164,16 @@ class NodeProperties:
         if self.frame is not None:
             result['frame'] = self.frame
 
+        # Style properties
+        if self.background_color is not None:
+            result['backgroundColor'] = self.background_color
+        if self.border_color is not None:
+            result['borderColor'] = self.border_color
+        if self.border_width is not None:
+            result['borderWidth'] = self.border_width
+        if self.corner_radius is not None:
+            result['cornerRadius'] = self.corner_radius
+
         # Extra properties
         result.update(self.extra)
 
@@ -173,7 +189,8 @@ class NodeProperties:
             'columns', 'alignment', 'separation',
             'value', 'min_value', 'max_value', 'step',
             'button_pressed', 'bbcode_enabled',
-            'hframes', 'vframes', 'frame'
+            'hframes', 'vframes', 'frame',
+            'backgroundColor', 'borderColor', 'borderWidth', 'cornerRadius'
         }
 
         extra = {k: v for k, v in data.items() if k not in known_keys}
@@ -203,6 +220,10 @@ class NodeProperties:
             hframes=data.get('hframes'),
             vframes=data.get('vframes'),
             frame=data.get('frame'),
+            background_color=data.get('backgroundColor'),
+            border_color=data.get('borderColor'),
+            border_width=data.get('borderWidth'),
+            corner_radius=data.get('cornerRadius'),
             extra=extra
         )
 

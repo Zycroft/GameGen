@@ -1285,6 +1285,16 @@ func _serialize_scene_tree(node_data: Dictionary) -> Dictionary:
 					data["properties"]["alignment"] = inner.alignment
 					data["properties"]["separation"] = inner.get_theme_constant("separation")
 
+			# Serialize style properties
+			if not node.style_background_color.is_empty():
+				data["properties"]["backgroundColor"] = node.style_background_color
+			if not node.style_border_color.is_empty():
+				data["properties"]["borderColor"] = node.style_border_color
+			if node.style_border_width != 1:
+				data["properties"]["borderWidth"] = node.style_border_width
+			if node.style_corner_radius != 4:
+				data["properties"]["cornerRadius"] = node.style_corner_radius
+
 			# Serialize widgets from actual container
 			for widget in node.get_widgets():
 				var widget_data = _serialize_widget(widget)
@@ -1813,6 +1823,14 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 				if props.has("separation"):
 					inner.add_theme_constant_override("separation", props["separation"])
 
+		# Restore style properties
+		var bg_color = props.get("backgroundColor", "")
+		var border_color = props.get("borderColor", "")
+		var border_width = props.get("borderWidth", 1)
+		var corner_radius = props.get("cornerRadius", 4)
+		if bg_color or border_color:
+			container.set_style_properties(bg_color, border_color, border_width, corner_radius)
+
 		all_nodes[node_id] = container
 
 		# Create widgets
@@ -1968,6 +1986,15 @@ func _create_container_from_data(data: Dictionary, parent: DraggableContainer) -
 				inner.alignment = layout_props["alignment"]
 			if layout_props.has("separation"):
 				inner.add_theme_constant_override("separation", layout_props["separation"])
+
+	# Restore style properties
+	var style_props = data.get("properties", {})
+	var bg_color = style_props.get("backgroundColor", "")
+	var border_color = style_props.get("borderColor", "")
+	var border_width = style_props.get("borderWidth", 1)
+	var corner_radius = style_props.get("cornerRadius", 4)
+	if bg_color or border_color:
+		container.set_style_properties(bg_color, border_color, border_width, corner_radius)
 
 	# Restore widgets
 	var widgets = data.get("widgets", [])
