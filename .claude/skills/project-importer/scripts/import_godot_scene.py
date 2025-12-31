@@ -231,6 +231,7 @@ class TscnParser:
         self.root_node: Optional[str] = None
         self.id_counter = 0
         self.ext_resources: Dict[str, Dict[str, str]] = {}  # id -> {type, path}
+        self.sub_resources: Dict[str, Dict[str, Any]] = {}  # id -> style properties
         self.script_path: Optional[str] = None
         self.gdscript_analyzer: Optional[GDScriptAnalyzer] = None
 
@@ -264,6 +265,19 @@ class TscnParser:
                 res_path = ext_match.group(2)
                 res_id = ext_match.group(3)
                 self.ext_resources[res_id] = {'type': res_type, 'path': res_path}
+                continue
+
+            # Parse sub_resource declarations (StyleBoxFlat for panel styles)
+            sub_match = re.match(
+                r'\[sub_resource type="([^"]+)" id="([^"]+)"\]',
+                section
+            )
+            if sub_match:
+                res_type = sub_match.group(1)
+                res_id = sub_match.group(2)
+                if res_type == "StyleBoxFlat":
+                    style_props = self._parse_style_box(section)
+                    self.sub_resources[res_id] = style_props
                 continue
 
             # Parse node declarations
@@ -323,6 +337,66 @@ class TscnParser:
 
         return properties
 
+    def _parse_style_box(self, section: str) -> Dict[str, Any]:
+        """Extract style properties from a StyleBoxFlat section"""
+        style = {}
+        lines = section.split('\n')[1:]
+
+        bg_color = None
+        border_color = None
+        border_width = None
+        corner_radius = None
+
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('['):
+                continue
+            if '=' in line:
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+
+                # Parse bg_color
+                if key == 'bg_color':
+                    color_match = re.match(r'Color\(([\d.]+),\s*([\d.]+),\s*([\d.]+)', value)
+                    if color_match:
+                        r = float(color_match.group(1))
+                        g = float(color_match.group(2))
+                        b = float(color_match.group(3))
+                        bg_color = '#{:02x}{:02x}{:02x}'.format(
+                            int(r * 255), int(g * 255), int(b * 255)
+                        )
+
+                # Parse border_color
+                elif key == 'border_color':
+                    color_match = re.match(r'Color\(([\d.]+),\s*([\d.]+),\s*([\d.]+)', value)
+                    if color_match:
+                        r = float(color_match.group(1))
+                        g = float(color_match.group(2))
+                        b = float(color_match.group(3))
+                        border_color = '#{:02x}{:02x}{:02x}'.format(
+                            int(r * 255), int(g * 255), int(b * 255)
+                        )
+
+                # Parse border_width (use left as representative)
+                elif key == 'border_width_left':
+                    border_width = int(value)
+
+                # Parse corner_radius (use top_left as representative)
+                elif key == 'corner_radius_top_left':
+                    corner_radius = int(value)
+
+        if bg_color:
+            style['backgroundColor'] = bg_color
+        if border_color:
+            style['borderColor'] = border_color
+        if border_width is not None:
+            style['borderWidth'] = border_width
+        if corner_radius is not None:
+            style['cornerRadius'] = corner_radius
+
+        return style
+
     def _parse_value(self, value: str) -> Any:
         """Parse a property value to appropriate Python type"""
         value = value.strip()
@@ -340,6 +414,12 @@ class TscnParser:
                 res_id = match.group(1)
                 res_info = self.ext_resources.get(res_id, {})
                 return res_info.get('path', f"unresolved:{res_id}")
+            return value
+        elif value.startswith('SubResource('):
+            # Return sub_resource reference for later resolution
+            match = re.match(r'SubResource\(\s*"([^"]+)"\s*\)', value)
+            if match:
+                return {'_subresource': match.group(1)}
             return value
         elif value.startswith('Vector2('):
             match = re.match(r'Vector2\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)', value)
@@ -705,6 +785,20 @@ class TscnParser:
         # Texture for Sprite2D
         if node['is_2d_node'] and 'texture' in props:
             result['texture'] = props['texture']
+
+        # Style properties from theme_override_styles/panel
+        panel_style = props.get('theme_override_styles/panel')
+        if panel_style and isinstance(panel_style, dict) and '_subresource' in panel_style:
+            sub_id = panel_style['_subresource']
+            style_props = self.sub_resources.get(sub_id, {})
+            if 'backgroundColor' in style_props:
+                result['backgroundColor'] = style_props['backgroundColor']
+            if 'borderColor' in style_props:
+                result['borderColor'] = style_props['borderColor']
+            if 'borderWidth' in style_props:
+                result['borderWidth'] = style_props['borderWidth']
+            if 'cornerRadius' in style_props:
+                result['cornerRadius'] = style_props['cornerRadius']
 
         return result, flags
 
