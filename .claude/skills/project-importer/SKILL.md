@@ -215,3 +215,8 @@ project/
 ```
 
 The `.godot/` directory is automatically excluded from scanning.
+
+## Related Skills
+
+- **project-sync**: Export DynamoDB SceneLayout to Godot .tscn (reverse of this skill)
+- **push-design**: Initial project setup from AI Game Design (infrequent)
