@@ -65,6 +65,23 @@ class NodeProperties:
     scale_x: float = 1.0
     scale_y: float = 1.0
 
+    # Original Godot offset values (for round-trip export)
+    # These preserve exact positioning from imported scenes
+    offset_left: Optional[float] = None
+    offset_top: Optional[float] = None
+    offset_right: Optional[float] = None
+    offset_bottom: Optional[float] = None
+
+    # Anchor values (for anchor-based positioning)
+    anchor_left: Optional[float] = None
+    anchor_top: Optional[float] = None
+    anchor_right: Optional[float] = None
+    anchor_bottom: Optional[float] = None
+    anchors_preset: Optional[int] = None
+
+    # Layout mode (0=position, 1=anchors, 2=container)
+    layout_mode: Optional[int] = None
+
     # Content properties
     text: Optional[str] = None
     placeholder_text: Optional[str] = None
@@ -121,6 +138,32 @@ class NodeProperties:
             result['scaleX'] = self.scale_x
         if self.scale_y != 1:
             result['scaleY'] = self.scale_y
+
+        # Original offset values (for round-trip export)
+        if self.offset_left is not None:
+            result['offsetLeft'] = self.offset_left
+        if self.offset_top is not None:
+            result['offsetTop'] = self.offset_top
+        if self.offset_right is not None:
+            result['offsetRight'] = self.offset_right
+        if self.offset_bottom is not None:
+            result['offsetBottom'] = self.offset_bottom
+
+        # Anchor values
+        if self.anchor_left is not None:
+            result['anchorLeft'] = self.anchor_left
+        if self.anchor_top is not None:
+            result['anchorTop'] = self.anchor_top
+        if self.anchor_right is not None:
+            result['anchorRight'] = self.anchor_right
+        if self.anchor_bottom is not None:
+            result['anchorBottom'] = self.anchor_bottom
+        if self.anchors_preset is not None:
+            result['anchorsPreset'] = self.anchors_preset
+
+        # Layout mode
+        if self.layout_mode is not None:
+            result['layoutMode'] = self.layout_mode
 
         # Content
         if self.text is not None:
@@ -185,6 +228,9 @@ class NodeProperties:
         known_keys = {
             'positionX', 'positionY', 'sizeX', 'sizeY',
             'minSizeX', 'minSizeY', 'scaleX', 'scaleY',
+            'offsetLeft', 'offsetTop', 'offsetRight', 'offsetBottom',
+            'anchorLeft', 'anchorTop', 'anchorRight', 'anchorBottom',
+            'anchorsPreset', 'layoutMode',
             'text', 'placeholder_text', 'color', 'texture',
             'columns', 'alignment', 'separation',
             'value', 'min_value', 'max_value', 'step',
@@ -204,6 +250,16 @@ class NodeProperties:
             min_size_y=float(data.get('minSizeY', 0)),
             scale_x=float(data.get('scaleX', 1)),
             scale_y=float(data.get('scaleY', 1)),
+            offset_left=data.get('offsetLeft'),
+            offset_top=data.get('offsetTop'),
+            offset_right=data.get('offsetRight'),
+            offset_bottom=data.get('offsetBottom'),
+            anchor_left=data.get('anchorLeft'),
+            anchor_top=data.get('anchorTop'),
+            anchor_right=data.get('anchorRight'),
+            anchor_bottom=data.get('anchorBottom'),
+            anchors_preset=data.get('anchorsPreset'),
+            layout_mode=data.get('layoutMode'),
             text=data.get('text'),
             placeholder_text=data.get('placeholder_text'),
             color=data.get('color'),

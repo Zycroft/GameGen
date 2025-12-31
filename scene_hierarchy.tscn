@@ -138,6 +138,16 @@ theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
 theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
 theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
 
+[node name="PosToggle" type="Button" parent="ButtonRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 26)
+toggle_mode = true
+tooltip_text = "Toggle between display position (scene file) and programmatic position (GDScript)"
+text = "📍"
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+
 [node name="Content" type="Panel" parent="."]
 layout_mode = 1
 anchors_preset = 15

@@ -288,8 +288,9 @@ class TscnGenerator:
                     result['size_flags_horizontal'] = 3
                     result['size_flags_vertical'] = 3
             # If parent is a container, use layout_mode 2 (container child)
+            # Unless a specific layout_mode was stored from import
             elif parent_is_container:
-                result['layout_mode'] = 2
+                result['layout_mode'] = props.layout_mode if props.layout_mode is not None else 2
 
                 # Use extracted size flags, or infer from node name/type
                 # Check both snake_case and camelCase keys (importer uses camelCase)
@@ -338,27 +339,42 @@ class TscnGenerator:
                     result['size'] = {'type': 'Vector2', 'x': 1152, 'y': 648}
                 else:
                     # Parent is Control - use layout_mode 1 (anchors)
-                    result['layout_mode'] = 1
-                    result['anchors_preset'] = 15  # PRESET_FULL_RECT
-                    result['anchor_left'] = 0.0
-                    result['anchor_top'] = 0.0
-                    result['anchor_right'] = 1.0
-                    result['anchor_bottom'] = 1.0
+                    # Use stored values if available from import
+                    result['layout_mode'] = props.layout_mode if props.layout_mode is not None else 1
+                    result['anchors_preset'] = props.anchors_preset if props.anchors_preset is not None else 15
+                    result['anchor_left'] = props.anchor_left if props.anchor_left is not None else 0.0
+                    result['anchor_top'] = props.anchor_top if props.anchor_top is not None else 0.0
+                    result['anchor_right'] = props.anchor_right if props.anchor_right is not None else 1.0
+                    result['anchor_bottom'] = props.anchor_bottom if props.anchor_bottom is not None else 1.0
                     result['grow_horizontal'] = 2
                     result['grow_vertical'] = 2
-                    result['offset_left'] = 0.0
-                    result['offset_top'] = 0.0
-                    result['offset_right'] = 0.0
-                    result['offset_bottom'] = 0.0
+                    # Use stored offset values if available
+                    result['offset_left'] = props.offset_left if props.offset_left is not None else 0.0
+                    result['offset_top'] = props.offset_top if props.offset_top is not None else 0.0
+                    result['offset_right'] = props.offset_right if props.offset_right is not None else 0.0
+                    result['offset_bottom'] = props.offset_bottom if props.offset_bottom is not None else 0.0
             else:
                 # Regular control with offset positioning
-                if props.position_x != 0:
+                # Use stored offset values if available (from imported scenes)
+                # Otherwise calculate from position/size
+                if props.offset_left is not None:
+                    result['offset_left'] = float(props.offset_left)
+                elif props.position_x != 0:
                     result['offset_left'] = float(props.position_x)
-                if props.position_y != 0:
+
+                if props.offset_top is not None:
+                    result['offset_top'] = float(props.offset_top)
+                elif props.position_y != 0:
                     result['offset_top'] = float(props.position_y)
-                if props.size_x != 0:
+
+                if props.offset_right is not None:
+                    result['offset_right'] = float(props.offset_right)
+                elif props.size_x != 0:
                     result['offset_right'] = float(props.position_x + props.size_x)
-                if props.size_y != 0:
+
+                if props.offset_bottom is not None:
+                    result['offset_bottom'] = float(props.offset_bottom)
+                elif props.size_y != 0:
                     result['offset_bottom'] = float(props.position_y + props.size_y)
 
         # Custom minimum size

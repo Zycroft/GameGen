@@ -210,16 +210,33 @@ class ProjectSyncer:
             self._copy_layout_properties(widget, source)
 
     def _collect_scenes(self, root: SceneNode) -> List[ParsedScene]:
-        """Collect all Scene nodes for separate export."""
+        """Collect all scenes for separate export.
+
+        Scenes are identified by having a _scenePath attribute (set by importer).
+        If the root itself has a scene_path, it's a single scene.
+        Otherwise, look for children that have scene_path (multi-scene import).
+        """
         scenes = []
+
+        # Check if root itself is a scene with a path
+        if root.scene_path:
+            scenes.append(ParsedScene(root=root, scene_path=root.scene_path))
+            return scenes
+
+        # Look for child nodes that have scene paths (multi-scene import wrapper)
         self._collect_scenes_recursive(root, scenes)
+
         return scenes
 
     def _collect_scenes_recursive(self, node: SceneNode, scenes: List[ParsedScene]) -> None:
-        """Recursively collect Scene nodes."""
-        if node.type == 'Scene' and node.scene_path:
+        """Recursively collect nodes with scene_path as separate scenes."""
+        # Check if this node has a scene path (from importer's _scenePath)
+        if node.scene_path:
             scenes.append(ParsedScene(root=node, scene_path=node.scene_path))
+            # Don't recurse into this node's children - they're part of this scene
+            return
 
+        # Recurse into children to find scenes
         for child in node.children:
             self._collect_scenes_recursive(child, scenes)
 

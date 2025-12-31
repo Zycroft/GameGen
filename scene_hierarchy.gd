@@ -12,6 +12,7 @@ signal project_selected(project_data: Dictionary)
 signal save_requested
 signal load_requested
 signal save_toolbar_layout_requested
+signal position_mode_changed(use_programmatic: bool)  # Toggle between display and programmatic positions
 
 var dragging := false
 var drag_offset := Vector2.ZERO
@@ -155,6 +156,7 @@ const NODE_ICONS := {
 @onready var project_button: Button = $ButtonRow/ProjectButton
 @onready var save_button: Button = $ButtonRow/SaveButton
 @onready var new_button: Button = $ButtonRow/NewButton
+@onready var pos_toggle: Button = $ButtonRow/PosToggle
 @onready var tree: Tree = $Content/Tree
 @onready var add_node_popup: PopupMenu
 
@@ -203,6 +205,7 @@ func _ready() -> void:
 	project_button.pressed.connect(_on_project_button_pressed)
 	save_button.pressed.connect(_on_save_button_pressed)
 	new_button.pressed.connect(_on_new_button_pressed)
+	pos_toggle.toggled.connect(_on_pos_toggle_changed)
 
 	# Setup tree
 	tree.hide_root = false
@@ -1455,6 +1458,17 @@ func _on_new_button_pressed() -> void:
 	new_project_name_edit.text = ""
 	new_project_path_edit.text = ""
 	new_project_dialog.popup_centered()
+
+
+func _on_pos_toggle_changed(toggled_on: bool) -> void:
+	"""Toggle between display position (scene file) and programmatic position (GDScript)"""
+	if toggled_on:
+		pos_toggle.text = "⚡"  # Lightning for programmatic
+		pos_toggle.tooltip_text = "Showing programmatic positions (from GDScript)\nClick to show display positions"
+	else:
+		pos_toggle.text = "📍"  # Pin for display/scene file
+		pos_toggle.tooltip_text = "Showing display positions (from scene file)\nClick to show programmatic positions"
+	position_mode_changed.emit(toggled_on)
 
 
 func _on_browse_button_pressed() -> void:

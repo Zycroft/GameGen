@@ -224,6 +224,12 @@ class TscnParser:
         'AnimationPlayer', 'AnimationTree'
     }
 
+    # Window types that should be centered in GameGen
+    WINDOW_TYPES = {
+        'Window', 'AcceptDialog', 'ConfirmationDialog',
+        'FileDialog', 'Popup', 'PopupMenu', 'PopupPanel'
+    }
+
     def __init__(self, file_path: str, project_root: Path = None):
         self.file_path = Path(file_path)
         self.project_root = project_root or self.file_path.parent
@@ -311,6 +317,7 @@ class TscnParser:
                     'is_widget': node_type in self.WIDGET_TYPES,
                     'is_2d_node': node_type in self.NODE_2D_TYPES,
                     'is_animation': node_type in self.ANIMATION_TYPES,
+                    'is_window': node_type in self.WINDOW_TYPES,
                     'script': script_ref
                 }
 
@@ -721,20 +728,79 @@ class TscnParser:
             result['positionX'] = props.get('offset_left', 0)
             result['positionY'] = props.get('offset_top', 0)
 
-        # Check for programmatic position
+        # Preserve original offset values for round-trip export
+        # These are needed to recreate exact Godot positioning
+        if 'offset_left' in props:
+            result['offsetLeft'] = props['offset_left']
+        if 'offset_top' in props:
+            result['offsetTop'] = props['offset_top']
+        if 'offset_right' in props:
+            result['offsetRight'] = props['offset_right']
+        if 'offset_bottom' in props:
+            result['offsetBottom'] = props['offset_bottom']
+
+        # Preserve anchor values for anchor-based positioning
+        if 'anchor_left' in props:
+            result['anchorLeft'] = props['anchor_left']
+        if 'anchor_top' in props:
+            result['anchorTop'] = props['anchor_top']
+        if 'anchor_right' in props:
+            result['anchorRight'] = props['anchor_right']
+        if 'anchor_bottom' in props:
+            result['anchorBottom'] = props['anchor_bottom']
+        if 'anchors_preset' in props:
+            result['anchorsPreset'] = props['anchors_preset']
+
+        # Preserve layout_mode for proper export
+        if 'layout_mode' in props:
+            result['layoutMode'] = props['layout_mode']
+
+        # Check for programmatic position - store separately from display position
         if node_specific.get('position_programmatic'):
             flags['positionProgrammatic'] = True
             if node_specific.get('position'):
-                result['positionX'] = node_specific['position'].get('x', result['positionX'])
-                result['positionY'] = node_specific['position'].get('y', result['positionY'])
+                # Store programmatic position separately, don't override display position
+                result['programmaticPositionX'] = node_specific['position'].get('x', result['positionX'])
+                result['programmaticPositionY'] = node_specific['position'].get('y', result['positionY'])
         elif script_analysis.get('has_position_code') and node_name == self.root_node:
             # Root node with position code in its script
             flags['positionProgrammatic'] = True
             if script_analysis.get('position_approximation'):
                 approx = script_analysis['position_approximation']
                 if 'x' in approx:
-                    result['positionX'] = approx['x']
-                    result['positionY'] = approx['y']
+                    # Store programmatic position separately, don't override display position
+                    result['programmaticPositionX'] = approx['x']
+                    result['programmaticPositionY'] = approx['y']
+
+        # Window centering: calculate centered position for Window nodes
+        # This simulates Godot's popup_centered() behavior
+        if node.get('is_window', False):
+            # Get window size from properties
+            window_width = 0
+            window_height = 0
+            if 'size' in props and isinstance(props['size'], dict):
+                window_width = props['size'].get('x', 0)
+                window_height = props['size'].get('y', 0)
+            # Fallback to offset-based size
+            if window_width == 0 and 'offset_right' in props:
+                window_width = props.get('offset_right', 0) - props.get('offset_left', 0)
+                window_height = props.get('offset_bottom', 0) - props.get('offset_top', 0)
+            # Default window size if not specified
+            if window_width <= 0:
+                window_width = 400
+            if window_height <= 0:
+                window_height = 300
+
+            # Calculate centered position
+            centered_x = (self.DEFAULT_VIEWPORT_WIDTH - window_width) / 2
+            centered_y = (self.DEFAULT_VIEWPORT_HEIGHT - window_height) / 2
+
+            # Store as programmatic position (centered)
+            result['programmaticPositionX'] = centered_x
+            result['programmaticPositionY'] = centered_y
+            result['windowWidth'] = window_width
+            result['windowHeight'] = window_height
+            flags['positionProgrammatic'] = True  # Mark as having alternative position
 
         # Size - check multiple sources, prioritize explicit size over minimum
         size_x = 0
@@ -762,19 +828,21 @@ class TscnParser:
         if size_y > 0:
             result['sizeY'] = size_y
 
-        # Check for programmatic size
+        # Check for programmatic size - store separately from display size
         if node_specific.get('size_programmatic'):
             flags['sizeProgrammatic'] = True
             if node_specific.get('size'):
-                result['sizeX'] = node_specific['size'].get('x', result.get('sizeX', 200))
-                result['sizeY'] = node_specific['size'].get('y', result.get('sizeY', 150))
+                # Store programmatic size separately, don't override display size
+                result['programmaticSizeX'] = node_specific['size'].get('x', result.get('sizeX', 200))
+                result['programmaticSizeY'] = node_specific['size'].get('y', result.get('sizeY', 150))
         elif script_analysis.get('has_size_code') and node_name == self.root_node:
             flags['sizeProgrammatic'] = True
             if script_analysis.get('size_approximation'):
                 approx = script_analysis['size_approximation']
                 if 'x' in approx:
-                    result['sizeX'] = approx['x']
-                    result['sizeY'] = approx['y']
+                    # Store programmatic size separately, don't override display size
+                    result['programmaticSizeX'] = approx['x']
+                    result['programmaticSizeY'] = approx['y']
 
         # Layout properties
         if node['node_type'] == 'GridContainer' and 'columns' in props:
@@ -835,6 +903,20 @@ class TscnParser:
         elif 'offset_left' in props or 'offset_top' in props:
             result['positionX'] = props.get('offset_left', 0)
             result['positionY'] = props.get('offset_top', 0)
+
+        # Preserve original offset values for round-trip export
+        if 'offset_left' in props:
+            result['offsetLeft'] = props['offset_left']
+        if 'offset_top' in props:
+            result['offsetTop'] = props['offset_top']
+        if 'offset_right' in props:
+            result['offsetRight'] = props['offset_right']
+        if 'offset_bottom' in props:
+            result['offsetBottom'] = props['offset_bottom']
+
+        # Preserve layout_mode for proper export
+        if 'layout_mode' in props:
+            result['layoutMode'] = props['layout_mode']
 
         # Size properties
         if 'size' in props and isinstance(props['size'], dict):

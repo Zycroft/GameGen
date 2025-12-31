@@ -22,6 +22,9 @@ var scene_root: Dictionary = {}
 var all_nodes: Dictionary = {}  # node_id -> node instance or data
 var selected_node_id: int = -1
 
+# Position mode: false = display position (scene file), true = programmatic position (GDScript)
+var use_programmatic_position: bool = false
+
 # Viewport frame settings
 var project_viewport_size := Vector2(1920, 1080)  # Default project viewport
 var viewport_margin_percent := 0.10  # 10% margin
@@ -218,6 +221,7 @@ func _create_scene_hierarchy() -> void:
 	scene_hierarchy.node_deleted.connect(_on_hierarchy_node_deleted)
 	scene_hierarchy.add_node_requested.connect(_on_hierarchy_add_node_requested)
 	scene_hierarchy.properties_requested.connect(_on_hierarchy_properties_requested)
+	scene_hierarchy.position_mode_changed.connect(_on_position_mode_changed)
 
 	# Connect project management signals (moved from toolbar)
 	scene_hierarchy.project_selected.connect(_on_project_selected)
@@ -456,6 +460,36 @@ func _find_parent_in_tree(current: Dictionary, target_id: int, parent_container_
 
 func _on_hierarchy_properties_requested(node_id: int, node_data: Dictionary) -> void:
 	_show_properties_dialog(node_id, node_data)
+
+
+func _on_position_mode_changed(use_programmatic: bool) -> void:
+	"""Handle toggle between display position and programmatic position"""
+	use_programmatic_position = use_programmatic
+	print("Position mode changed: ", "programmatic" if use_programmatic else "display")
+
+	# Update all container positions based on the new mode
+	_update_all_container_positions()
+
+
+func _update_all_container_positions() -> void:
+	"""Update all container positions based on current position mode"""
+	for container in all_containers:
+		var node_data = container.get_meta("node_data") if container.has_meta("node_data") else null
+		if node_data:
+			var props = node_data.get("properties", {})
+			var pos_x: float
+			var pos_y: float
+
+			if use_programmatic_position:
+				# Use programmatic position if available, otherwise fall back to display position
+				pos_x = props.get("programmaticPositionX", props.get("positionX", 0))
+				pos_y = props.get("programmaticPositionY", props.get("positionY", 0))
+			else:
+				# Use display position (from scene file)
+				pos_x = props.get("positionX", 0)
+				pos_y = props.get("positionY", 0)
+
+			container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 
 
 var properties_dialog: Window
@@ -1667,13 +1701,36 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 			_create_nodes_from_tree(child, null)
 		return
 
-	# Handle Window/Dialog types - they're popups, treat as virtual containers
+	# Handle Window/Dialog types - create a visual container that can be positioned
 	if node_type in ["Window", "AcceptDialog", "ConfirmationDialog", "Popup", "PopupMenu", "PopupPanel"]:
-		# Store the data but don't create inline visual - these are modal popups
-		all_nodes[node_id] = node_data
-		# Process children - they render inside the dialog
+		var container = _create_container("PanelContainer")
+		container.set_container_name(node_data.get("name", node_type))
+		container.set_container_type(node_type)
+
+		# Use position based on current position mode
+		var pos_x: float
+		var pos_y: float
+		if use_programmatic_position:
+			pos_x = props.get("programmaticPositionX", props.get("positionX", 0))
+			pos_y = props.get("programmaticPositionY", props.get("positionY", 0))
+		else:
+			pos_x = props.get("positionX", 0)
+			pos_y = props.get("positionY", 0)
+		container.global_position = viewport_offset + Vector2(pos_x, pos_y)
+
+		# Set size from window properties
+		var size_x = props.get("windowWidth", props.get("sizeX", 400))
+		var size_y = props.get("windowHeight", props.get("sizeY", 300))
+		container.size = Vector2(size_x, size_y)
+
+		container.set_meta("node_id", node_id)
+		container.set_meta("node_data", node_data)
+		all_containers.append(container)
+		all_nodes[node_id] = container
+
+		# Process children inside this container
 		for child in node_data.get("children", []):
-			_create_nodes_from_tree(child, null)
+			_create_nodes_from_tree(child, container)
 		return
 
 	# Create node based on type
@@ -1749,11 +1806,23 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		else:
 			# Top-level container
 			container = _create_container(node_type)
-			var pos_x = props.get("positionX", 0)
-			var pos_y = props.get("positionY", 0)
+			# Use position based on current position mode
+			var pos_x: float
+			var pos_y: float
+			if use_programmatic_position:
+				pos_x = props.get("programmaticPositionX", props.get("positionX", 0))
+				pos_y = props.get("programmaticPositionY", props.get("positionY", 0))
+			else:
+				pos_x = props.get("positionX", 0)
+				pos_y = props.get("positionY", 0)
 			container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 
 		container.set_meta("node_id", node_id)
+		container.set_meta("node_data", node_data)  # Store full data for position toggle
+
+		# Add to all_containers for position toggle tracking
+		if not parent_is_container:
+			all_containers.append(container)
 
 		# Only set size for top-level containers (child containers fill parent)
 		if not parent_is_container:
@@ -1807,8 +1876,15 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 		var node_name = node_data.get("name", node_type)
 		var container: DraggableContainer
 		var parent_is_container = _parent_node is DraggableContainer
-		var pos_x = props.get("positionX", 100)
-		var pos_y = props.get("positionY", 100)
+		# Use position based on current position mode
+		var pos_x: float
+		var pos_y: float
+		if use_programmatic_position:
+			pos_x = props.get("programmaticPositionX", props.get("positionX", 100))
+			pos_y = props.get("programmaticPositionY", props.get("positionY", 100))
+		else:
+			pos_x = props.get("positionX", 100)
+			pos_y = props.get("positionY", 100)
 
 		if parent_is_container:
 			# Child of another container - add to content panel
@@ -1832,6 +1908,10 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 			container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 
 		container.set_meta("node_id", node_id)
+		container.set_meta("node_data", node_data)  # Store full data for position toggle
+		# Add to all_containers for position toggle tracking
+		if not parent_is_container:
+			all_containers.append(container)
 		# Only set size for top-level containers
 		if not parent_is_container and props.has("sizeX") and props.has("sizeY"):
 			container.size = Vector2(props.get("sizeX", 200), props.get("sizeY", 150))
@@ -1864,8 +1944,15 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 	elif node_type in SceneHierarchyScript.NODE_CATEGORIES["UI"]:
 		var widget_name = node_data.get("name", node_type)
 		var parent_is_container = _parent_node is DraggableContainer
-		var pos_x = props.get("positionX", 100)
-		var pos_y = props.get("positionY", 100)
+		# Use position based on current position mode
+		var pos_x: float
+		var pos_y: float
+		if use_programmatic_position:
+			pos_x = props.get("programmaticPositionX", props.get("positionX", 100))
+			pos_y = props.get("programmaticPositionY", props.get("positionY", 100))
+		else:
+			pos_x = props.get("positionX", 100)
+			pos_y = props.get("positionY", 100)
 
 		if parent_is_container:
 			# Add widget directly to parent container
@@ -1878,7 +1965,9 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 			var container = _create_standalone_widget(node_type, props, widget_name)
 			if container:
 				container.set_meta("node_id", node_id)
+				container.set_meta("node_data", node_data)  # Store full data for position toggle
 				container.global_position = viewport_offset + Vector2(pos_x, pos_y)
+				all_containers.append(container)  # Add to all_containers for position toggle
 				all_nodes[node_id] = container
 
 	# Process children recursively
@@ -1899,8 +1988,18 @@ func _create_container_from_data(data: Dictionary, parent: DraggableContainer) -
 	if parent == null:
 		# Top-level container
 		container = _create_container(container_type)
-		container.global_position = viewport_offset + Vector2(data.get("positionX", 0), data.get("positionY", 0))
+		# Use position based on current position mode
+		var pos_x: float
+		var pos_y: float
+		if use_programmatic_position:
+			pos_x = data.get("programmaticPositionX", data.get("positionX", 0))
+			pos_y = data.get("programmaticPositionY", data.get("positionY", 0))
+		else:
+			pos_x = data.get("positionX", 0)
+			pos_y = data.get("positionY", 0)
+		container.global_position = viewport_offset + Vector2(pos_x, pos_y)
 		container.size = Vector2(data.get("sizeX", 200), data.get("sizeY", 150))
+		container.set_meta("node_data", data)  # Store full data for position toggle
 	else:
 		# Child container - add to parent's content panel
 		container = DraggableContainerScene.instantiate()
