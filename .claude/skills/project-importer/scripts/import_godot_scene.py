@@ -800,6 +800,12 @@ class TscnParser:
             if 'cornerRadius' in style_props:
                 result['cornerRadius'] = style_props['cornerRadius']
 
+        # Size flags for layout behavior
+        if 'size_flags_horizontal' in props:
+            result['sizeFlagsHorizontal'] = props['size_flags_horizontal']
+        if 'size_flags_vertical' in props:
+            result['sizeFlagsVertical'] = props['size_flags_vertical']
+
         return result, flags
 
     def _extract_widget_properties_with_flags(
@@ -876,6 +882,12 @@ class TscnParser:
         if 'scale' in props and isinstance(props['scale'], dict):
             result['scaleX'] = props['scale'].get('x', 1)
             result['scaleY'] = props['scale'].get('y', 1)
+
+        # Size flags for layout behavior
+        if 'size_flags_horizontal' in props:
+            result['sizeFlagsHorizontal'] = props['size_flags_horizontal']
+        if 'size_flags_vertical' in props:
+            result['sizeFlagsVertical'] = props['size_flags_vertical']
 
         return result, flags
 

@@ -1704,16 +1704,21 @@ func _create_nodes_from_tree(node_data: Dictionary, _parent_node) -> void:
 			container.parent_container = _parent_node
 			container.unlink_button.visible = true
 
-			# Infer size flags from node name (matching Godot generator logic)
-			var h_flags = Control.SIZE_EXPAND_FILL
-			var v_flags = Control.SIZE_EXPAND_FILL
+			# Use imported size flags if available, otherwise infer from node name
+			var h_flags = props.get("sizeFlagsHorizontal", -1)
+			var v_flags = props.get("sizeFlagsVertical", -1)
 
-			# Toolbars should not expand horizontally (use minimum width)
-			if "Toolbar" in ctrl_node_name:
-				h_flags = Control.SIZE_FILL
-			# MenuBar and StatusBar should not expand vertically
-			if ctrl_node_name in ["MenuBar", "StatusBar"] or "Bar" in ctrl_node_name:
-				v_flags = Control.SIZE_FILL
+			# If not imported, infer from node name (matching Godot generator logic)
+			if h_flags < 0:
+				h_flags = Control.SIZE_EXPAND_FILL
+				# Toolbars should not expand horizontally (use minimum width)
+				if "Toolbar" in ctrl_node_name:
+					h_flags = Control.SIZE_FILL
+			if v_flags < 0:
+				v_flags = Control.SIZE_EXPAND_FILL
+				# MenuBar and StatusBar should not expand vertically
+				if ctrl_node_name in ["MenuBar", "StatusBar"] or "Bar" in ctrl_node_name:
+					v_flags = Control.SIZE_FILL
 
 			container.size_flags_horizontal = h_flags
 			container.size_flags_vertical = v_flags

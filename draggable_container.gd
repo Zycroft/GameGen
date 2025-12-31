@@ -708,6 +708,9 @@ func _spawn_widget(widget_type: String) -> Control:
 	# Store widget type as metadata
 	widget.set_meta("widget_type", widget_type)
 
+	# Set layout_mode = 2 for proper container layout behavior
+	widget.set("layout_mode", 2)
+
 	# Ensure widget can receive mouse input (Labels default to IGNORE)
 	widget.mouse_filter = Control.MOUSE_FILTER_STOP
 
