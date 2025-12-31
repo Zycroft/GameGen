@@ -300,8 +300,8 @@ class TscnParser:
                     'script': script_ref
                 }
 
-                # Track root node
-                if parent is None or parent == '.':
+                # Track root node (only nodes with no parent attribute)
+                if parent is None:
                     self.root_node = name
 
         return self._build_scene_tree()
