@@ -1495,55 +1495,9 @@ func _save_to_dynamodb(layout_data: Dictionary) -> void:
 func _on_save_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code == 200:
 		print("Layout saved successfully!")
-		_write_sync_trigger()
-		_run_godot_export()
 	else:
 		var error_body = body.get_string_from_utf8()
 		print("Failed to save layout: ", response_code, " - ", error_body)
-
-
-func _write_sync_trigger() -> void:
-	"""Write sync trigger file for background export agent"""
-	var godot_project_path = ProjectSettings.globalize_path("res://")
-	var trigger_path = godot_project_path + ".gamegen-sync"
-
-	var file = FileAccess.open(trigger_path, FileAccess.WRITE)
-	if file:
-		var trigger_data = {
-			"projectID": current_project_id,
-			"projectName": current_project_name,
-			"savedAt": Time.get_datetime_string_from_system()
-		}
-		file.store_string(JSON.stringify(trigger_data, "\t"))
-		file.close()
-		print("Sync trigger written to: ", trigger_path)
-	else:
-		print("Failed to write sync trigger file")
-
-
-func _run_godot_export() -> void:
-	"""Run the Godot scene exporter script to sync scenes to the target project"""
-	if current_project_id < 0:
-		return
-
-	var project_path = ProjectSettings.globalize_path("res://")
-	var script_path = project_path + ".claude/skills/godot-scene-exporter/scripts/export_to_tscn.py"
-
-	# Check if script exists
-	if not FileAccess.file_exists(script_path):
-		print("Export script not found: ", script_path)
-		return
-
-	print("Running Godot export...")
-
-	# Run Python script in background using create_process (non-blocking)
-	var args = [script_path, "--project-id", str(current_project_id)]
-	var pid = OS.create_process("python3", args)
-
-	if pid > 0:
-		print("Export started (PID: ", pid, ")")
-	else:
-		print("Failed to start export process")
 
 
 # ==================== LOAD ====================
